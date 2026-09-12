@@ -1,0 +1,87 @@
+# Render Blueprint — API web service + daily reminders cron.
+# In Render: New → Blueprint → point at this repo. Set the env vars marked
+# `sync: false` in the dashboard (values come from Neon/Upstash/Supabase/Meta).
+services:
+  - type: web
+    name: moksha-api
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @moksha/api build
+    preDeployCommand: pnpm --filter @moksha/api exec prisma migrate deploy
+    startCommand: pnpm --filter @moksha/api start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: API_PUBLIC_URL
+        sync: false # https://moksha-api.onrender.com (or your api domain)
+      - key: WEB_ORIGIN
+        sync: false # https://<your-vercel-domain>
+      - key: DATABASE_URL
+        sync: false # Neon pooled connection string
+      - key: REDIS_URL
+        sync: false # Upstash rediss:// URL
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        sync: false # 32-byte hex (openssl rand -hex 32)
+      - key: STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: moksha-uploads
+      - key: PUBLIC_LEADS_API_KEY
+        generateValue: true
+      - key: GOOGLE_FORM_SHARED_SECRET
+        generateValue: true
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_RENEWAL_TEMPLATE
+        value: renewal_reminder
+
+  - type: cron
+    name: moksha-reminders
+    runtime: node
+    plan: free
+    schedule: "30 3 * * *" # daily 03:30 UTC (~09:00 IST)
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @moksha/api build
+    startCommand: node apps/api/dist/jobs/reminders.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        value: moksha-uploads
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_RENEWAL_TEMPLATE
+        value: renewal_reminder
+      - key: RENEWAL_REMINDER_DAYS
+        value: "7,3,1"

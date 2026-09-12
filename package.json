@@ -1,0 +1,26 @@
+{
+  "name": "moksha-wellness-admin-panel",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Admin panel for Moksha Wellness (Yoga • Pilates • Dance)",
+  "packageManager": "pnpm@9.7.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm --filter \"./apps/*\" build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:up": "docker compose up -d postgres redis",
+    "db:down": "docker compose down",
+    "prisma:migrate": "pnpm --filter @moksha/api prisma migrate dev",
+    "prisma:deploy": "pnpm --filter @moksha/api prisma migrate deploy",
+    "prisma:studio": "pnpm --filter @moksha/api prisma studio",
+    "seed": "pnpm --filter @moksha/api seed"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4"
+  }
+}

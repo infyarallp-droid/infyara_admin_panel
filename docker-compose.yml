@@ -1,0 +1,33 @@
+# Local development ONLY. Production uses Neon (Postgres) + Upstash (Redis).
+# Start with: pnpm db:up   (or: docker compose up -d postgres redis)
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: moksha-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moksha
+      POSTGRES_PASSWORD: moksha
+      POSTGRES_DB: moksha
+    ports:
+      - "5432:5432"
+    volumes:
+      - moksha_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moksha"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: moksha-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - moksha_redisdata:/data
+
+volumes:
+  moksha_pgdata:
+  moksha_redisdata:
