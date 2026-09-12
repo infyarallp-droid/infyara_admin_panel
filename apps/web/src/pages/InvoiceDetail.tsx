@@ -100,7 +100,7 @@ export default function InvoiceDetail() {
               <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="w-32" />
             </Field>
             <Field label="Mode">
-              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={mode} onChange={(e) => setMode(e.target.value)}>
+              <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={mode} onChange={(e) => setMode(e.target.value)}>
                 {['CASH', 'UPI', 'CARD', 'BANK_TRANSFER', 'OTHER'].map((m) => <option key={m}>{m}</option>)}
               </select>
             </Field>

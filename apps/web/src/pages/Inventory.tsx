@@ -56,7 +56,7 @@ function NewProduct({ onSaved }: { onSaved: () => void }) {
           <Input value={name} onChange={(e) => setName(e.target.value)} className="w-56" />
         </Field>
         <Field label="Type">
-          <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={type} onChange={(e) => setType(e.target.value)}>
+          <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={type} onChange={(e) => setType(e.target.value)}>
             <option value="MAT">Mat</option>
             <option value="TSHIRT">T-Shirt</option>
             <option value="NUTRITION_DRINK">Nutrition Drink</option>

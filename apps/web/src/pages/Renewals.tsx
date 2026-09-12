@@ -28,7 +28,7 @@ export default function Renewals() {
           <p className="text-sm text-slate-500">Enrollments ending soon. (Auto WhatsApp reminders land in M7.)</p>
         </div>
         <select
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           value={days}
           onChange={(e) => setDays(Number(e.target.value))}
         >

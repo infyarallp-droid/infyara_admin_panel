@@ -28,7 +28,7 @@ export default function Invoices() {
           <p className="text-sm text-slate-500">Enrollment, renewal and product invoices.</p>
         </div>
         <select
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
         >

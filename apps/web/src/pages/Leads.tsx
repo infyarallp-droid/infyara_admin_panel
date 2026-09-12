@@ -33,7 +33,7 @@ export default function Leads() {
         </div>
         <div className="flex gap-2">
           <Input placeholder="Search name/phone…" value={search} onChange={(e) => setSearch(e.target.value)} className="w-48" />
-          <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All statuses</option>
             {STATUSES.map((s) => <option key={s}>{s}</option>)}
           </select>
@@ -129,7 +129,7 @@ function LeadDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             <div className="mt-4">
               <Field label="Status">
                 <select
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                   value={lead.status}
                   onChange={(e) => setStatus.mutate(e.target.value)}
                 >

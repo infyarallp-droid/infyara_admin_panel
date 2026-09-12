@@ -50,7 +50,7 @@ export default function EnrollDrawer({
         <div className="space-y-3">
           <Field label="Course">
             <select
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
               value={courseId}
               onChange={(e) => {
                 setCourseId(e.target.value);
@@ -70,7 +70,7 @@ export default function EnrollDrawer({
           {course && (
             <Field label="Plan">
               <select
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 value={planId}
                 onChange={(e) => setPlanId(e.target.value)}
               >
@@ -87,7 +87,7 @@ export default function EnrollDrawer({
           {course && !!course.timings?.length && (
             <Field label="Class timing">
               <select
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 value={timingId}
                 onChange={(e) => setTimingId(e.target.value)}
               >

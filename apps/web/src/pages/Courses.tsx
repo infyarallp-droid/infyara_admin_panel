@@ -51,13 +51,13 @@ function NewCourse({ onSaved }: { onSaved: () => void }) {
           <Input value={name} onChange={(e) => setName(e.target.value)} className="w-56" />
         </Field>
         <Field label="Category">
-          <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
             <option value="REGULAR">Regular</option>
             <option value="TEACHER_TRAINING">Teacher Training</option>
           </select>
         </Field>
         <Field label="Discipline">
-          <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={discipline} onChange={(e) => setDiscipline(e.target.value)}>
+          <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={discipline} onChange={(e) => setDiscipline(e.target.value)}>
             <option>YOGA</option>
             <option>PILATES</option>
             <option>DANCE</option>
@@ -124,7 +124,7 @@ function AddPlan({ courseId, onSaved }: { courseId: string; onSaved: () => void 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input placeholder="Plan title" value={title} onChange={(e) => setTitle(e.target.value)} className="w-28" />
-      <select className="rounded-xl border border-slate-200 px-2 py-2 text-sm" value={durationType} onChange={(e) => setDurationType(e.target.value)}>
+      <select className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-sm" value={durationType} onChange={(e) => setDurationType(e.target.value)}>
         {DURATIONS.map((d) => <option key={d}>{d}</option>)}
       </select>
       <Input placeholder="₹" value={priceRupees} onChange={(e) => setPrice(e.target.value)} className="w-20" />

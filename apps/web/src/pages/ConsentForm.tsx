@@ -150,7 +150,7 @@ export default function ConsentForm() {
           ))}
         </div>
         <input
-          className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
           placeholder="Other conditions…"
           value={healthOther}
           disabled={finalized}
