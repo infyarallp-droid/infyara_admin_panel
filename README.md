@@ -124,4 +124,7 @@ function onFormSubmit(e) {
       PAYMENT_RECEIVED alerts, and an admin `POST /api/automations/run-reminders` trigger
 - [x] **M8 Dashboard & Analytics** — `/api/analytics/summary` + Recharts dashboard (revenue, pending,
       active students, renewals due, leads-by-source pie, course-popularity bar, lead funnel, low stock)
-- [ ] M9 Hardening & Deploy (deploy to Vercel + Render + Neon + Upstash — guided, needs your accounts)
+- [x] **M9 Deploy prep** — Supabase storage provider, `deploy/render.yaml` (API + cron),
+      `apps/web/vercel.json`, `deploy/google-apps-script.gs`, and **[DEPLOYMENT.md](DEPLOYMENT.md)**
+      (click-by-click for Neon/Upstash/Supabase/Render/Vercel/WhatsApp). Git initialized; prod builds verified.
+      _Remaining: you create the free accounts and follow DEPLOYMENT.md to go live._
