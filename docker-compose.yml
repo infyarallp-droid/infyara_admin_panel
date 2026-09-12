@@ -10,7 +10,8 @@ services:
       POSTGRES_PASSWORD: moksha
       POSTGRES_DB: moksha
     ports:
-      - "5432:5432"
+      # Host port 5544 (5432 is often taken by another local Postgres)
+      - "5544:5432"
     volumes:
       - moksha_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +25,8 @@ services:
     container_name: moksha-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      # Host port 6399 (6379 is often taken by another local Redis)
+      - "6399:6379"
     volumes:
       - moksha_redisdata:/data
 
