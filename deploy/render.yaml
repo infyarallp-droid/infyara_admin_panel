@@ -7,10 +7,9 @@ services:
     runtime: node
     plan: free
     rootDir: .
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @moksha/api build
-    preDeployCommand: pnpm --filter @moksha/api exec prisma migrate deploy
-    startCommand: pnpm --filter @moksha/api start
-    healthCheckPath: /health
+   buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @moksha/api exec prisma migrate deploy && pnpm --filter @moksha/api build
+   startCommand: pnpm --filter @moksha/api start
+   healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
