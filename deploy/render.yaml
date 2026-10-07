@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     rootDir: .
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @moksha/api exec prisma migrate deploy && pnpm --filter @moksha/api build
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter @moksha/api exec prisma migrate deploy && pnpm --filter @moksha/api build
     startCommand: pnpm --filter @moksha/api start
     healthCheckPath: /health
 
