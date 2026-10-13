@@ -4,7 +4,8 @@ services:
     runtime: node
     plan: free
     rootDir: .
-    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter @moksha/api exec prisma migrate deploy && pnpm --filter @moksha/api build
+    # migrate deploy = additive schema migrations; catalog:sync = idempotent course catalogue (creates missing courses only, never fees/plans)
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter @moksha/api exec prisma migrate deploy && pnpm --filter @moksha/api catalog:sync && pnpm --filter @moksha/api build
     startCommand: pnpm --filter @moksha/api start
     healthCheckPath: /health
 

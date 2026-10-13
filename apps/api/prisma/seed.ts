@@ -1,5 +1,7 @@
 import { PrismaClient, CourseCategory, Discipline, DurationType, ProductType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import '../src/lib/env.js'; // loads the root .env exactly as the API does (so `pnpm seed` works from any directory)
+import { syncCatalogue } from './catalog.js';
 
 const prisma = new PrismaClient();
 
@@ -80,80 +82,81 @@ async function main() {
     console.log('📄 Consent template v1 created (from PDF)');
   }
 
-  // 3. Sample courses + plans
-  const hatha = await prisma.course.create({
-    data: {
-      name: 'Hatha Yoga',
-      category: CourseCategory.REGULAR,
-      discipline: Discipline.YOGA,
-      plans: {
-        create: [
-          { title: '1 Month', durationType: DurationType.MONTH_1, durationValue: 30, pricePaise: paise(2500), sessionsPerWeek: 5 },
-          { title: '3 Months', durationType: DurationType.MONTH_3, durationValue: 90, pricePaise: paise(6500), sessionsPerWeek: 5 },
-          { title: '12 Months', durationType: DurationType.MONTH_12, durationValue: 365, pricePaise: paise(22000), sessionsPerWeek: 5 },
-        ],
+  // 3. Sample courses + plans (created once — re-running the seed never duplicates them)
+  let hatha = await prisma.course.findFirst({ where: { name: 'Hatha Yoga' } });
+  if (!hatha) {
+    hatha = await prisma.course.create({
+      data: {
+        name: 'Hatha Yoga',
+        category: CourseCategory.REGULAR,
+        discipline: Discipline.YOGA,
+        plans: {
+          create: [
+            { title: '1 Month', durationType: DurationType.MONTH_1, durationValue: 30, pricePaise: paise(2500), sessionsPerWeek: 5 },
+            { title: '3 Months', durationType: DurationType.MONTH_3, durationValue: 90, pricePaise: paise(6500), sessionsPerWeek: 5 },
+            { title: '12 Months', durationType: DurationType.MONTH_12, durationValue: 365, pricePaise: paise(22000), sessionsPerWeek: 5 },
+          ],
+        },
       },
-    },
-  });
+    });
 
-  await prisma.course.create({
-    data: {
-      name: 'Yoga Teacher Training (TTC)',
-      category: CourseCategory.TEACHER_TRAINING,
-      discipline: Discipline.YOGA,
-      plans: {
-        create: [
-          { title: '200 Hours TTC', durationType: DurationType.HRS_200, durationValue: 200, pricePaise: paise(60000) },
-          { title: '300 Hours TTC', durationType: DurationType.HRS_300, durationValue: 300, pricePaise: paise(85000) },
-          { title: '600 Hours TTC', durationType: DurationType.HRS_600, durationValue: 600, pricePaise: paise(150000) },
-        ],
+    // 4. Class timings (only alongside the sample course)
+    await prisma.classTiming.createMany({
+      data: [
+        { courseId: hatha.id, label: '6:00 – 7:00 AM', days: ['MON', 'WED', 'FRI'] },
+        { courseId: hatha.id, label: '7:00 – 8:00 AM', days: ['MON', 'TUE', 'WED', 'THU', 'FRI'] },
+        { courseId: hatha.id, label: '6:00 – 7:00 PM', days: ['MON', 'WED', 'FRI'] },
+      ],
+    });
+  }
+
+  if (!(await prisma.course.findFirst({ where: { name: 'Yoga Teacher Training (TTC)' } }))) {
+    await prisma.course.create({
+      data: {
+        name: 'Yoga Teacher Training (TTC)',
+        category: CourseCategory.TEACHER_TRAINING,
+        discipline: Discipline.YOGA,
+        plans: {
+          create: [
+            { title: '200 Hours TTC', durationType: DurationType.HRS_200, durationValue: 200, pricePaise: paise(60000) },
+            { title: '300 Hours TTC', durationType: DurationType.HRS_300, durationValue: 300, pricePaise: paise(85000) },
+            { title: '600 Hours TTC', durationType: DurationType.HRS_600, durationValue: 600, pricePaise: paise(150000) },
+          ],
+        },
       },
-    },
-  });
+    });
+  }
 
-  // 4. Class timings
-  await prisma.classTiming.createMany({
-    data: [
-      { courseId: hatha.id, label: '6:00 – 7:00 AM', days: ['MON', 'WED', 'FRI'] },
-      { courseId: hatha.id, label: '7:00 – 8:00 AM', days: ['MON', 'TUE', 'WED', 'THU', 'FRI'] },
-      { courseId: hatha.id, label: '6:00 – 7:00 PM', days: ['MON', 'WED', 'FRI'] },
-    ],
-  });
+  // 4b. Requested course & class catalogue (idempotent; no fees/durations invented)
+  const catalogue = await syncCatalogue(prisma);
+  console.log(`📚 Catalogue: ${catalogue.created.length} created, ${catalogue.updated.length} updated, ${catalogue.unchanged.length} unchanged`);
 
-  // 5. Merchandise
-  const mat = await prisma.product.create({ data: { name: 'Yoga Mat', type: ProductType.MAT } });
-  await prisma.productVariant.createMany({
-    data: [
-      { productId: mat.id, variantLabel: '4mm', attributes: { thickness: '4mm' }, sku: 'MAT-4MM', pricePaise: paise(800), stockQty: 20, reorderLevel: 5 },
-      { productId: mat.id, variantLabel: '6mm', attributes: { thickness: '6mm' }, sku: 'MAT-6MM', pricePaise: paise(1200), stockQty: 20, reorderLevel: 5 },
-    ],
-  });
+  // 5. Merchandise (variants are keyed by SKU, so re-running is a no-op)
+  const product = async (name: string, type: ProductType) =>
+    (await prisma.product.findFirst({ where: { name } })) ?? (await prisma.product.create({ data: { name, type } }));
+  const variant = (data: {
+    productId: string;
+    variantLabel: string;
+    attributes: Record<string, string>;
+    sku: string;
+    pricePaise: bigint;
+    stockQty: number;
+    reorderLevel: number;
+  }) => prisma.productVariant.upsert({ where: { sku: data.sku }, update: {}, create: data });
 
-  const tshirt = await prisma.product.create({ data: { name: 'Moksha T-Shirt', type: ProductType.TSHIRT } });
-  await prisma.productVariant.createMany({
-    data: ['S', 'M', 'L', 'XL'].map((size) => ({
-      productId: tshirt.id,
-      variantLabel: size,
-      attributes: { size },
-      sku: `TSHIRT-${size}`,
-      pricePaise: paise(499),
-      stockQty: 15,
-      reorderLevel: 4,
-    })),
-  });
+  const mat = await product('Yoga Mat', ProductType.MAT);
+  await variant({ productId: mat.id, variantLabel: '4mm', attributes: { thickness: '4mm' }, sku: 'MAT-4MM', pricePaise: paise(800), stockQty: 20, reorderLevel: 5 });
+  await variant({ productId: mat.id, variantLabel: '6mm', attributes: { thickness: '6mm' }, sku: 'MAT-6MM', pricePaise: paise(1200), stockQty: 20, reorderLevel: 5 });
 
-  const drink = await prisma.product.create({ data: { name: 'Nutrition Drink', type: ProductType.NUTRITION_DRINK } });
-  await prisma.productVariant.createMany({
-    data: ['Chocolate', 'Vanilla', 'Mango'].map((flavour) => ({
-      productId: drink.id,
-      variantLabel: flavour,
-      attributes: { flavour },
-      sku: `DRINK-${flavour.toUpperCase()}`,
-      pricePaise: paise(150),
-      stockQty: 30,
-      reorderLevel: 8,
-    })),
-  });
+  const tshirt = await product('Moksha T-Shirt', ProductType.TSHIRT);
+  for (const size of ['S', 'M', 'L', 'XL']) {
+    await variant({ productId: tshirt.id, variantLabel: size, attributes: { size }, sku: `TSHIRT-${size}`, pricePaise: paise(499), stockQty: 15, reorderLevel: 4 });
+  }
+
+  const drink = await product('Nutrition Drink', ProductType.NUTRITION_DRINK);
+  for (const flavour of ['Chocolate', 'Vanilla', 'Mango']) {
+    await variant({ productId: drink.id, variantLabel: flavour, attributes: { flavour }, sku: `DRINK-${flavour.toUpperCase()}`, pricePaise: paise(150), stockQty: 30, reorderLevel: 8 });
+  }
 
   console.log('🌱 Seed complete.');
 }

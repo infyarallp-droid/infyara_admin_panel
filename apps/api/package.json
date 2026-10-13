@@ -9,7 +9,9 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "seed": "tsx prisma/seed.ts",
+    "catalog:sync": "tsx prisma/catalog.ts",
     "prisma": "prisma",
+    "test": "tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },

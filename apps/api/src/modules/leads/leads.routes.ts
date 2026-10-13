@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { asyncHandler, HttpError } from '../../lib/http.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { normalizeMobile } from '@moksha/shared';
+import { nextStudentCode } from '../../lib/counters.js';
 
 export const leadsRouter = Router();
 leadsRouter.use(requireAuth);
@@ -82,21 +84,26 @@ leadsRouter.post(
     if (!lead) throw new HttpError(404, 'Lead not found');
     if (lead.convertedStudentId) throw new HttpError(409, 'Lead already converted');
 
-    const mobile = (req.body?.mobile as string) || lead.phone;
-    if (!mobile) throw new HttpError(400, 'A mobile number is required to create a student');
+    const rawMobile = (req.body?.mobile as string) || lead.phone;
+    if (!rawMobile) throw new HttpError(400, 'A mobile number is required to create a student');
+    // WhatsApp leads arrive as 91XXXXXXXXXX — match the student master on the 10-digit mobile.
+    const mobile = normalizeMobile(rawMobile) ?? rawMobile;
 
     const existing = await prisma.student.findUnique({ where: { mobile } });
     const student =
       existing ??
-      (await prisma.student.create({
-        data: {
-          fullName: lead.name ?? 'New Student',
-          mobile,
-          email: lead.email,
-          leadId: lead.id,
-          createdById: req.user!.sub,
-        },
-      }));
+      (await prisma.$transaction(async (tx) =>
+        tx.student.create({
+          data: {
+            studentCode: await nextStudentCode(tx),
+            fullName: lead.name ?? 'New Student',
+            mobile,
+            email: lead.email ? lead.email.toLowerCase() : null,
+            leadId: lead.id,
+            createdById: req.user!.sub,
+          },
+        }),
+      ));
 
     await prisma.lead.update({
       where: { id: lead.id },

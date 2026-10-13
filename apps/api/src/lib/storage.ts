@@ -16,7 +16,9 @@ export interface StoredFile {
 }
 
 function safeKey(prefix: string, filename: string): string {
-  const ext = path.extname(filename) || '';
+  // Only a short alphanumeric extension survives — the stored name is never user-controlled.
+  const rawExt = path.extname(filename).toLowerCase();
+  const ext = /^[.][a-z0-9]{1,8}$/.test(rawExt) ? rawExt : '';
   const id = crypto.randomBytes(8).toString('hex');
   return `${prefix}/${Date.now()}-${id}${ext}`;
 }
@@ -69,6 +71,24 @@ export async function putObject(
     default:
       return putLocal(key, data);
   }
+}
+
+/**
+ * Read a stored file back by its key (used to serve private files through
+ * authenticated API routes instead of handing out storage URLs).
+ */
+export async function getObject(key: string): Promise<Buffer> {
+  if (env.STORAGE_PROVIDER === 'supabase') {
+    const sb = supabase();
+    if (sb) {
+      const { data, error } = await sb.storage.from(env.SUPABASE_BUCKET).download(key);
+      if (!error && data) return Buffer.from(await data.arrayBuffer());
+      // Fall through: the file may have been written locally while storage was misconfigured.
+    }
+  }
+  const full = path.resolve(UPLOAD_DIR, key);
+  if (!full.startsWith(UPLOAD_DIR + path.sep)) throw new Error('Invalid storage key');
+  return fs.readFile(full);
 }
 
 /** Store a data: URL (e.g. a signature-pad PNG) and return its key + URL. */

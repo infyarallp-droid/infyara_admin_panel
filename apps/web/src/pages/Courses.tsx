@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { api, apiError } from '../lib/api';
+import { DELIVERY_MODE } from '../lib/format';
 import { Badge, Button, Card, Field, Input, Spinner } from '../components/ui';
 
 const DURATIONS = ['MONTH_1', 'MONTH_3', 'MONTH_12', 'HRS_200', 'HRS_300', 'HRS_600', 'CUSTOM'];
@@ -9,10 +10,14 @@ const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 export default function Courses() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['courses'] });
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['courses'],
     queryFn: async () => (await api.get('/api/courses')).data,
   });
+  const groups = [
+    { key: 'TEACHER_TRAINING', title: 'Teacher Training Programs' },
+    { key: 'REGULAR', title: 'Regular Classes' },
+  ];
 
   return (
     <div className="space-y-6">
@@ -25,8 +30,22 @@ export default function Courses() {
 
       {isLoading ? (
         <div className="flex justify-center py-10"><Spinner /></div>
+      ) : isError ? (
+        <p className="text-sm text-red-600">Could not load the course catalogue. Please refresh.</p>
       ) : (
-        data?.courses?.map((c: any) => <CourseCard key={c.id} course={c} onChanged={invalidate} />)
+        groups.map((g) => {
+          const list = (data?.courses ?? []).filter((c: any) => c.category === g.key);
+          return (
+            <section key={g.key} className="space-y-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                {g.title} ({list.length})
+              </h2>
+              {list.map((c: any) => (
+                <CourseCard key={c.id} course={c} onChanged={invalidate} />
+              ))}
+            </section>
+          );
+        })
       )}
     </div>
   );
@@ -36,12 +55,17 @@ function NewCourse({ onSaved }: { onSaved: () => void }) {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('REGULAR');
   const [discipline, setDiscipline] = useState('YOGA');
+  const [deliveryMode, setDeliveryMode] = useState('');
+  const [error, setError] = useState('');
   const save = useMutation({
-    mutationFn: async () => (await api.post('/api/courses', { name, category, discipline })).data,
+    mutationFn: async () =>
+      (await api.post('/api/courses', { name, category, discipline, deliveryMode: deliveryMode || undefined })).data,
     onSuccess: () => {
       setName('');
+      setError('');
       onSaved();
     },
+    onError: async (e) => setError(await apiError(e, 'Could not add the course')),
   });
   return (
     <Card>
@@ -63,22 +87,71 @@ function NewCourse({ onSaved }: { onSaved: () => void }) {
             <option>DANCE</option>
           </select>
         </Field>
-        <Button onClick={() => name && save.mutate()} disabled={save.isPending}>Add</Button>
+        <Field label="Delivery mode">
+          <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={deliveryMode} onChange={(e) => setDeliveryMode(e.target.value)}>
+            <option value="">To be confirmed</option>
+            {Object.entries(DELIVERY_MODE).map(([k, label]) => (
+              <option key={k} value={k}>{label}</option>
+            ))}
+          </select>
+        </Field>
+        <Button onClick={() => name.trim() && !save.isPending && save.mutate()} disabled={save.isPending}>
+          {save.isPending ? 'Adding…' : 'Add'}
+        </Button>
       </div>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </Card>
   );
 }
 
 function CourseCard({ course, onChanged }: { course: any; onChanged: () => void }) {
+  const [error, setError] = useState('');
+  const update = useMutation({
+    mutationFn: async (patch: Record<string, unknown>) => (await api.put('/api/courses/' + course.id, patch)).data,
+    onSuccess: () => {
+      setError('');
+      onChanged();
+    },
+    onError: async (e) => setError(await apiError(e, 'Could not update the course')),
+  });
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
+    <Card className={course.isActive ? '' : 'opacity-60'}>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <h3 className="font-semibold">{course.name}</h3>
         <Badge tone={course.category === 'TEACHER_TRAINING' ? 'amber' : 'green'}>
           {course.category === 'TEACHER_TRAINING' ? 'Teacher Training' : 'Regular'}
         </Badge>
         <span className="text-xs text-slate-400">{course.discipline}</span>
+        {course.code && <span className="text-xs text-slate-400">· {course.code}</span>}
+        <select
+          aria-label="Delivery mode"
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs"
+          value={course.deliveryMode ?? ''}
+          disabled={update.isPending}
+          onChange={(e) => update.mutate({ deliveryMode: e.target.value || null })}
+        >
+          <option value="">Mode: to be confirmed</option>
+          {Object.entries(DELIVERY_MODE).map(([k, label]) => (
+            <option key={k} value={k}>{label}</option>
+          ))}
+        </select>
+        <label className="ml-auto flex items-center gap-1 text-xs text-slate-500">
+          <input
+            type="checkbox"
+            checked={course.isActive}
+            disabled={update.isPending}
+            onChange={(e) => update.mutate({ isActive: e.target.checked })}
+          />
+          Open for enrolment
+        </label>
       </div>
+      {course.description && <p className="mb-3 text-sm text-slate-500">{course.description}</p>}
+      {!!course.setupPending?.length && (
+        <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          To be confirmed and set up before taking enrolments: {course.setupPending.join(', ')}.
+        </p>
+      )}
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
       <div className="grid gap-6 md:grid-cols-2">
         <div>
@@ -112,23 +185,45 @@ function AddPlan({ courseId, onSaved }: { courseId: string; onSaved: () => void 
   const [title, setTitle] = useState('');
   const [durationType, setDurationType] = useState('MONTH_1');
   const [priceRupees, setPrice] = useState('');
+  const [days, setDays] = useState('');
+  const [error, setError] = useState('');
   const save = useMutation({
     mutationFn: async () =>
-      (await api.post(`/api/courses/${courseId}/plans`, { title, durationType, priceRupees: Number(priceRupees) })).data,
+      (
+        await api.post('/api/courses/' + courseId + '/plans', {
+          title,
+          durationType,
+          priceRupees: Number(priceRupees),
+          durationValue: durationType === 'CUSTOM' ? Number(days) : undefined,
+        })
+      ).data,
     onSuccess: () => {
       setTitle('');
       setPrice('');
+      setDays('');
+      setError('');
       onSaved();
     },
+    onError: async (e) => setError(await apiError(e, 'Could not add the plan')),
   });
+  const valid =
+    !!title.trim() &&
+    /^[0-9]+([.][0-9]{1,2})?$/.test(priceRupees.trim()) &&
+    (durationType !== 'CUSTOM' || /^[1-9][0-9]*$/.test(days.trim()));
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Input placeholder="Plan title" value={title} onChange={(e) => setTitle(e.target.value)} className="w-28" />
       <select className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-sm" value={durationType} onChange={(e) => setDurationType(e.target.value)}>
         {DURATIONS.map((d) => <option key={d}>{d}</option>)}
       </select>
-      <Input placeholder="₹" value={priceRupees} onChange={(e) => setPrice(e.target.value)} className="w-20" />
-      <Button variant="ghost" onClick={() => title && priceRupees && save.mutate()}>+ Plan</Button>
+      {durationType === 'CUSTOM' && (
+        <Input placeholder="Days" inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} className="w-20" />
+      )}
+      <Input placeholder="Fee ₹" inputMode="decimal" value={priceRupees} onChange={(e) => setPrice(e.target.value)} className="w-24" />
+      <Button variant="ghost" disabled={!valid || save.isPending} onClick={() => valid && !save.isPending && save.mutate()}>
+        {save.isPending ? 'Adding…' : '+ Plan'}
+      </Button>
+      {error && <p className="w-full text-xs text-red-600">{error}</p>}
     </div>
   );
 }
@@ -160,7 +255,9 @@ function AddTiming({ courseId, onSaved }: { courseId: string; onSaved: () => voi
           </button>
         ))}
       </div>
-      <Button variant="ghost" onClick={() => label && save.mutate()}>+ Timing</Button>
+      <Button variant="ghost" disabled={save.isPending} onClick={() => label.trim() && !save.isPending && save.mutate()}>
+        + Timing
+      </Button>
     </div>
   );
 }

@@ -29,6 +29,13 @@ enum CourseCategory {
   TEACHER_TRAINING
 }
 
+/// How a course is delivered. HYBRID = offered both offline and online.
+enum DeliveryMode {
+  OFFLINE
+  ONLINE
+  HYBRID
+}
+
 enum Discipline {
   YOGA
   PILATES
@@ -140,13 +147,13 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  studentsCreated   Student[]       @relation("StudentCreatedBy")
-  enrollmentsMade   Enrollment[]    @relation("EnrollmentCreatedBy")
-  invoicesMade      Invoice[]       @relation("InvoiceCreatedBy")
-  paymentsReceived  Payment[]       @relation("PaymentReceivedBy")
-  notifications     Notification[]
-  auditLogs         AuditLog[]
-  employee          Employee?
+  studentsCreated  Student[]      @relation("StudentCreatedBy")
+  enrollmentsMade  Enrollment[]   @relation("EnrollmentCreatedBy")
+  invoicesMade     Invoice[]      @relation("InvoiceCreatedBy")
+  paymentsReceived Payment[]      @relation("PaymentReceivedBy")
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  employee         Employee?
 
   @@index([role])
   @@map("users")
@@ -189,31 +196,40 @@ model AuditLog {
 // ───────────────────────── Students & consent ─────────────────────────
 
 model Student {
-  id                       String        @id @default(uuid()) @db.Uuid
-  fullName                 String        @map("full_name")
-  mobile                   String        @unique
-  email                    String?
-  dob                      DateTime?     @db.Date
-  gender                   String?
-  address                  String?
-  emergencyContactName     String?       @map("emergency_contact_name")
-  emergencyContactPhone    String?       @map("emergency_contact_phone")
-  emergencyContactRelation String?       @map("emergency_contact_relation")
-  isMinor                  Boolean       @default(false) @map("is_minor")
-  status                   GeneralStatus @default(ACTIVE)
-  leadId                   String?       @map("lead_id") @db.Uuid
-  createdById              String?       @map("created_by") @db.Uuid
-  createdAt                DateTime      @default(now()) @map("created_at")
-  updatedAt                DateTime      @updatedAt @map("updated_at")
+  id                        String        @id @default(uuid()) @db.Uuid
+  /// Human-readable Student ID (e.g. STU-0001, or the legacy ID from an import).
+  studentCode               String?       @unique @map("student_code")
+  fullName                  String        @map("full_name")
+  mobile                    String        @unique
+  email                     String?
+  dob                       DateTime?     @db.Date
+  gender                    String?
+  address                   String?
+  emergencyContactName      String?       @map("emergency_contact_name")
+  emergencyContactPhone     String?       @map("emergency_contact_phone")
+  emergencyContactRelation  String?       @map("emergency_contact_relation")
+  isMinor                   Boolean       @default(false) @map("is_minor")
+  /// Manual flag only (INACTIVE = deactivated by an admin). The displayed
+  /// status is computed from this + the student's enrolments.
+  status                    GeneralStatus @default(ACTIVE)
+  deactivationReason        String?       @map("deactivation_reason")
+  deactivationEffectiveDate DateTime?     @map("deactivation_effective_date") @db.Date
+  deactivatedAt             DateTime?     @map("deactivated_at")
+  deactivatedById           String?       @map("deactivated_by") @db.Uuid
+  leadId                    String?       @map("lead_id") @db.Uuid
+  createdById               String?       @map("created_by") @db.Uuid
+  createdAt                 DateTime      @default(now()) @map("created_at")
+  updatedAt                 DateTime      @updatedAt @map("updated_at")
 
-  createdBy    User?         @relation("StudentCreatedBy", fields: [createdById], references: [id])
-  convertedFrom Lead?        @relation("LeadConvertedStudent")
-  enrollments  Enrollment[]
-  consentForms ConsentForm[]
-  invoices     Invoice[]
-  receipts     Receipt[]
+  createdBy     User?         @relation("StudentCreatedBy", fields: [createdById], references: [id])
+  convertedFrom Lead?         @relation("LeadConvertedStudent")
+  enrollments   Enrollment[]
+  consentForms  ConsentForm[]
+  invoices      Invoice[]
+  receipts      Receipt[]
 
   @@index([mobile])
+  @@index([email])
   @@map("students")
 }
 
@@ -233,41 +249,43 @@ model ConsentTemplate {
 }
 
 model ConsentForm {
-  id                 String        @id @default(uuid()) @db.Uuid
-  studentId          String        @map("student_id") @db.Uuid
-  enrollmentId       String?       @map("enrollment_id") @db.Uuid
-  templateVersion    Int?          @map("template_version")
-  batchTimingLabel   String?       @map("batch_timing_label")
-  formDate           DateTime      @map("form_date") @db.Date
+  id                   String        @id @default(uuid()) @db.Uuid
+  studentId            String        @map("student_id") @db.Uuid
+  enrollmentId         String?       @map("enrollment_id") @db.Uuid
+  templateVersion      Int?          @map("template_version")
+  batchTimingLabel     String?       @map("batch_timing_label")
+  formDate             DateTime      @map("form_date") @db.Date
   // Fee snapshot for the enrolled course (shown on the printed consent)
-  courseName         String?       @map("course_name")
-  planTitle          String?       @map("plan_title")
-  feePaise           BigInt?       @map("fee_paise")
-  amountPaidPaise    BigInt?       @map("amount_paid_paise")
-  balancePaise       BigInt?       @map("balance_paise")
+  courseName           String?       @map("course_name")
+  planTitle            String?       @map("plan_title")
+  feePaise             BigInt?       @map("fee_paise")
+  amountPaidPaise      BigInt?       @map("amount_paid_paise")
+  balancePaise         BigInt?       @map("balance_paise")
   // Section 1 — health declaration
-  healthFlags        Json?         @map("health_flags")
-  healthOther        String?       @map("health_other")
+  healthFlags          Json?         @map("health_flags")
+  healthOther          String?       @map("health_other")
   // Sections 2–5 — acknowledgements
-  consentSafetyAck   Boolean       @default(false) @map("consent_safety_ack")
-  studioPoliciesAck  Boolean       @default(false) @map("studio_policies_ack")
-  codeOfConductAck   Boolean       @default(false) @map("code_of_conduct_ack")
-  finalAck           Boolean       @default(false) @map("final_ack")
-  clauseSnapshot     Json?         @map("clause_snapshot")
+  consentSafetyAck     Boolean       @default(false) @map("consent_safety_ack")
+  studioPoliciesAck    Boolean       @default(false) @map("studio_policies_ack")
+  codeOfConductAck     Boolean       @default(false) @map("code_of_conduct_ack")
+  finalAck             Boolean       @default(false) @map("final_ack")
+  clauseSnapshot       Json?         @map("clause_snapshot")
   // Signatures
-  studentSignatureUrl  String?     @map("student_signature_url")
-  studentSignedDate    DateTime?   @map("student_signed_date") @db.Date
-  guardianSignatureUrl String?     @map("guardian_signature_url")
-  guardianSignedDate   DateTime?   @map("guardian_signed_date") @db.Date
-  trainerVerifiedBy    String?     @map("trainer_verified_by") @db.Uuid
-  trainerVerifiedDate  DateTime?   @map("trainer_verified_date") @db.Date
-  pdfUrl             String?       @map("pdf_url")
-  status             ConsentStatus @default(DRAFT)
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
+  studentSignatureUrl  String?       @map("student_signature_url")
+  studentSignedDate    DateTime?     @map("student_signed_date") @db.Date
+  guardianSignatureUrl String?       @map("guardian_signature_url")
+  guardianSignedDate   DateTime?     @map("guardian_signed_date") @db.Date
+  trainerVerifiedBy    String?       @map("trainer_verified_by") @db.Uuid
+  trainerVerifiedDate  DateTime?     @map("trainer_verified_date") @db.Date
+  pdfUrl               String?       @map("pdf_url")
+  status               ConsentStatus @default(DRAFT)
+  finalizedAt          DateTime?     @map("finalized_at")
+  finalizedById        String?       @map("finalized_by") @db.Uuid
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
 
-  student    Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  enrollment Enrollment?      @relation(fields: [enrollmentId], references: [id])
+  student    Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  enrollment Enrollment?     @relation(fields: [enrollmentId], references: [id])
   uploads    ConsentUpload[]
 
   @@index([studentId])
@@ -279,45 +297,54 @@ model ConsentUpload {
   id            String   @id @default(uuid()) @db.Uuid
   consentFormId String   @map("consent_form_id") @db.Uuid
   fileUrl       String   @map("file_url")
+  fileKey       String?  @map("file_key")
+  fileName      String?  @map("file_name")
+  mimeType      String?  @map("mime_type")
+  sizeBytes     Int?     @map("size_bytes")
   uploadedBy    String?  @map("uploaded_by") @db.Uuid
   note          String?
   uploadedAt    DateTime @default(now()) @map("uploaded_at")
 
   consentForm ConsentForm @relation(fields: [consentFormId], references: [id], onDelete: Cascade)
 
+  @@index([consentFormId])
   @@map("consent_uploads")
 }
 
 // ───────────────────────── Courses, timings, enrollments ─────────────────────────
 
 model Course {
-  id          String         @id @default(uuid()) @db.Uuid
-  name        String
-  category    CourseCategory
-  discipline  Discipline?
-  description String?
-  isActive    Boolean        @default(true) @map("is_active")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+  id           String         @id @default(uuid()) @db.Uuid
+  /// Stable short code (used by the catalogue sync and the legacy import).
+  code         String?        @unique
+  name         String
+  category     CourseCategory
+  discipline   Discipline?
+  /// Null = delivery mode not yet confirmed by the business.
+  deliveryMode DeliveryMode?  @map("delivery_mode")
+  description  String?
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
 
-  plans    CoursePlan[]
-  timings  ClassTiming[]
-  leads    Lead[]
+  plans   CoursePlan[]
+  timings ClassTiming[]
+  leads   Lead[]
 
   @@map("courses")
 }
 
 model CoursePlan {
-  id             String       @id @default(uuid()) @db.Uuid
-  courseId       String       @map("course_id") @db.Uuid
-  title          String
-  durationType   DurationType @map("duration_type")
-  durationValue  Int?         @map("duration_value")
-  pricePaise     BigInt       @map("price_paise")
-  sessionsPerWeek Int?        @map("sessions_per_week")
-  isActive       Boolean      @default(true) @map("is_active")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
+  id              String       @id @default(uuid()) @db.Uuid
+  courseId        String       @map("course_id") @db.Uuid
+  title           String
+  durationType    DurationType @map("duration_type")
+  durationValue   Int?         @map("duration_value")
+  pricePaise      BigInt       @map("price_paise")
+  sessionsPerWeek Int?         @map("sessions_per_week")
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
 
   course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   enrollments Enrollment[]
@@ -328,17 +355,17 @@ model CoursePlan {
 
 /// Maintained class-schedule slots (which timing a student enrolls for).
 model ClassTiming {
-  id        String   @id @default(uuid()) @db.Uuid
-  courseId  String?  @map("course_id") @db.Uuid
+  id        String    @id @default(uuid()) @db.Uuid
+  courseId  String?   @map("course_id") @db.Uuid
   label     String
   days      Json? // ["MON","WED","FRI"]
   startTime DateTime? @map("start_time") @db.Time
   endTime   DateTime? @map("end_time") @db.Time
-  trainerId String?  @map("trainer_id") @db.Uuid
+  trainerId String?   @map("trainer_id") @db.Uuid
   capacity  Int?
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   course      Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
   trainer     Employee?    @relation(fields: [trainerId], references: [id])
@@ -357,18 +384,22 @@ model Enrollment {
   pricePaise         BigInt           @map("price_paise")
   discountPaise      BigInt           @default(0) @map("discount_paise")
   status             EnrollmentStatus @default(ACTIVE)
-  parentEnrollmentId String?          @map("parent_enrollment_id") @db.Uuid
+  /// The enrolment this one renews. Unique: a period can be renewed only once,
+  /// which makes a retried/double-clicked renewal impossible at the DB level.
+  parentEnrollmentId String?          @unique @map("parent_enrollment_id") @db.Uuid
+  notes              String?
   createdById        String?          @map("created_by") @db.Uuid
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
-  student         Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  coursePlan      CoursePlan    @relation(fields: [coursePlanId], references: [id])
-  classTiming     ClassTiming?  @relation(fields: [classTimingId], references: [id])
-  parentEnrollment Enrollment?  @relation("Renewal", fields: [parentEnrollmentId], references: [id])
-  renewals        Enrollment[]  @relation("Renewal")
-  createdBy       User?         @relation("EnrollmentCreatedBy", fields: [createdById], references: [id])
-  consentForms    ConsentForm[]
+  student          Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  coursePlan       CoursePlan    @relation(fields: [coursePlanId], references: [id])
+  classTiming      ClassTiming?  @relation(fields: [classTimingId], references: [id])
+  parentEnrollment Enrollment?   @relation("Renewal", fields: [parentEnrollmentId], references: [id])
+  renewal          Enrollment?   @relation("Renewal")
+  createdBy        User?         @relation("EnrollmentCreatedBy", fields: [createdById], references: [id])
+  consentForms     ConsentForm[]
+  invoices         Invoice[]
 
   @@index([studentId])
   @@index([status, endDate]) // renewal-due scans
@@ -381,6 +412,8 @@ model Invoice {
   id              String        @id @default(uuid()) @db.Uuid
   invoiceNo       String        @unique @map("invoice_no")
   studentId       String?       @map("student_id") @db.Uuid
+  /// The enrolment/renewal this invoice bills (null for product/mixed invoices).
+  enrollmentId    String?       @map("enrollment_id") @db.Uuid
   type            InvoiceType
   subtotalPaise   BigInt        @default(0) @map("subtotal_paise")
   discountPaise   BigInt        @default(0) @map("discount_paise")
@@ -394,26 +427,28 @@ model Invoice {
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
 
-  student   Student?               @relation(fields: [studentId], references: [id])
-  createdBy User?                  @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
-  items     InvoiceItem[]
-  payments  Payment[]
-  invTx     InventoryTransaction[]
+  student    Student?               @relation(fields: [studentId], references: [id])
+  enrollment Enrollment?            @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  createdBy  User?                  @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  items      InvoiceItem[]
+  payments   Payment[]
+  invTx      InventoryTransaction[]
 
   @@index([studentId])
+  @@index([enrollmentId])
   @@index([status])
   @@map("invoices")
 }
 
 model InvoiceItem {
-  id             String   @id @default(uuid()) @db.Uuid
-  invoiceId      String   @map("invoice_id") @db.Uuid
-  itemType       String   @map("item_type") // COURSE_PLAN | PRODUCT_VARIANT | CUSTOM
-  refId          String?  @map("ref_id") @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
+  invoiceId      String  @map("invoice_id") @db.Uuid
+  itemType       String  @map("item_type") // COURSE_PLAN | PRODUCT_VARIANT | CUSTOM
+  refId          String? @map("ref_id") @db.Uuid
   description    String
-  qty            Int      @default(1)
-  unitPricePaise BigInt   @map("unit_price_paise")
-  lineTotalPaise BigInt   @map("line_total_paise")
+  qty            Int     @default(1)
+  unitPricePaise BigInt  @map("unit_price_paise")
+  lineTotalPaise BigInt  @map("line_total_paise")
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
@@ -422,14 +457,18 @@ model InvoiceItem {
 }
 
 model Payment {
-  id          String      @id @default(uuid()) @db.Uuid
-  invoiceId   String      @map("invoice_id") @db.Uuid
-  amountPaise BigInt      @map("amount_paise")
-  mode        PaymentMode
-  referenceNo String?     @map("reference_no")
-  paidAt      DateTime    @default(now()) @map("paid_at")
-  receivedById String?    @map("received_by") @db.Uuid
-  createdAt   DateTime    @default(now()) @map("created_at")
+  id             String      @id @default(uuid()) @db.Uuid
+  invoiceId      String      @map("invoice_id") @db.Uuid
+  amountPaise    BigInt      @map("amount_paise")
+  mode           PaymentMode
+  referenceNo    String?     @map("reference_no")
+  paidAt         DateTime    @default(now()) @map("paid_at")
+  receivedById   String?     @map("received_by") @db.Uuid
+  /// Client-generated key: a retried or double-clicked submission can never
+  /// create a second payment.
+  idempotencyKey String?     @unique @map("idempotency_key")
+  notes          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
 
   invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   receivedBy User?    @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
@@ -490,14 +529,14 @@ model ProductVariant {
 }
 
 model InventoryTransaction {
-  id          String          @id @default(uuid()) @db.Uuid
-  variantId   String          @map("variant_id") @db.Uuid
-  changeQty   Int             @map("change_qty")
-  reason      InventoryReason
-  refInvoiceId String?        @map("ref_invoice_id") @db.Uuid
-  note        String?
-  createdById String?         @map("created_by") @db.Uuid
-  createdAt   DateTime        @default(now()) @map("created_at")
+  id           String          @id @default(uuid()) @db.Uuid
+  variantId    String          @map("variant_id") @db.Uuid
+  changeQty    Int             @map("change_qty")
+  reason       InventoryReason
+  refInvoiceId String?         @map("ref_invoice_id") @db.Uuid
+  note         String?
+  createdById  String?         @map("created_by") @db.Uuid
+  createdAt    DateTime        @default(now()) @map("created_at")
 
   variant    ProductVariant @relation(fields: [variantId], references: [id])
   refInvoice Invoice?       @relation(fields: [refInvoiceId], references: [id])
@@ -515,7 +554,7 @@ model Employee {
   phone         String        @unique
   roleTitle     String?       @map("role_title")
   aadhaarNo     String?       @map("aadhaar_no") // encrypted ciphertext
-  panNo         String?       @map("pan_no")     // encrypted ciphertext
+  panNo         String?       @map("pan_no") // encrypted ciphertext
   dateOfJoining DateTime?     @map("date_of_joining") @db.Date
   address       String?
   salaryPaise   BigInt?       @map("salary_paise")
@@ -607,4 +646,44 @@ model IntegrationSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("integration_settings")
+}
+
+// ───────────────────────── Counters & outbound messages ─────────────────────────
+
+/// Atomic sequences (invoice / receipt / student numbers) — avoids the
+/// count()+1 race that produces duplicate-number errors under concurrency.
+model Counter {
+  key   String @id
+  value Int
+
+  @@map("counters")
+}
+
+/// One row per outbound message event (WhatsApp reminders/notifications).
+/// dedupeKey makes "same event, same reminder window" send at most once.
+model MessageLog {
+  id                String    @id @default(uuid()) @db.Uuid
+  channel           String    @default("WHATSAPP")
+  event             String // RENEWAL_REMINDER | PAYMENT_RECEIVED | ADMISSION_CONFIRMATION
+  dedupeKey         String    @unique @map("dedupe_key")
+  studentId         String?   @map("student_id") @db.Uuid
+  enrollmentId      String?   @map("enrollment_id") @db.Uuid
+  recipient         String?
+  templateName      String?   @map("template_name")
+  params            Json?
+  status            String // PENDING | SENT | DELIVERED | READ | FAILED | NOT_CONFIGURED | INVALID_RECIPIENT
+  attempts          Int       @default(0)
+  providerMessageId String?   @map("provider_message_id")
+  providerResponse  Json?     @map("provider_response")
+  error             String?
+  triggeredBy       String?   @map("triggered_by")
+  sentAt            DateTime? @map("sent_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([studentId])
+  @@index([enrollmentId])
+  @@index([providerMessageId])
+  @@index([status, createdAt])
+  @@map("message_logs")
 }

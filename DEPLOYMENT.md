@@ -110,6 +110,34 @@ Render, then update `VITE_API_URL` + `WEB_ORIGIN` to match. SSL is automatic on 
 - [ ] Turn on Render always-on (or a free uptime pinger) if cold starts bother you.
 - [ ] Set up nightly backups (Neon PITR / a scheduled `pg_dump`).
 
+## Release: Admin Page Testing fixes (migration `20261013160000_admin_testing_fixes`)
+
+**Before deploying**
+1. Take a database backup / note the Neon restore point.
+2. The migration is additive only (new nullable columns, tables `counters` and `message_logs`, indexes).
+   It backfills Student IDs (`STU-0001…`), links existing enrolment invoices to their enrolment, and — if the
+   old double-click bug ever created two renewals of one enrolment — keeps the first linked and records the
+   link of the extra one in its `notes` (nothing is deleted).
+
+**What the deploy does** (Render `buildCommand`): `prisma migrate deploy` → `catalog:sync` → build.
+`catalog:sync` creates the requested courses if missing (matched by code, then name) and never creates
+plans or fees. It is safe to re-run: `pnpm --filter @moksha/api catalog:sync`.
+
+**After deploying**
+- [ ] Courses → for each new course set **plan, duration, fee**, delivery mode and timetable (they show a
+      "to be confirmed" notice and cannot take enrolments until a plan exists).
+- [ ] Check Supabase storage: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` set and the private bucket
+      `moksha-uploads` exists. Payments and consent finalisation no longer depend on it, but signed-copy
+      uploads do (they now fail with a clear "File storage is unavailable" message instead of a 500).
+- [ ] Record one test payment and finalise one test consent form.
+- [ ] WhatsApp: set the credentials (section 7) and get the templates approved; until then the Renewals
+      page shows "WhatsApp is not set up" and nothing is sent. Subscribe the webhook to **messages** (this
+      also delivers sent/delivered/read receipts into the message log).
+- [ ] Optional business rules are env vars — see the "Business rules" block in `.env.example`.
+
+**Tests** (local only — they need the Docker Postgres and use a separate `<db>_test` database):
+`pnpm --filter @moksha/api test`
+
 ## Rollback / updates
 `git push` redeploys Vercel + Render automatically. New migrations apply via the Render
 `preDeployCommand`. To roll back, redeploy a previous commit from the Render/Vercel dashboards.

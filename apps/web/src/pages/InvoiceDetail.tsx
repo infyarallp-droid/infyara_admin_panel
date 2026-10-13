@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { api, API } from '../lib/api';
+import { api, apiError, openProtected } from '../lib/api';
+import { useSingleFlight } from '../lib/useSingleFlight';
 import { Badge, Button, Card, Field, Input, Spinner } from '../components/ui';
 
 const inr = (paise: number) => `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+const newKey = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function InvoiceDetail() {
   const { id } = useParams();
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['invoice', id],
     queryFn: async () => (await api.get(`/api/billing/invoices/${id}`)).data,
   });
@@ -16,30 +20,73 @@ export default function InvoiceDetail() {
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState('CASH');
   const [ref, setRef] = useState('');
-  const [msg, setMsg] = useState('');
+  const [paidOn, setPaidOn] = useState(today());
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  // One key per payment attempt: a double click, a retry after a timeout, or a
+  // resend of the same form all resolve to the SAME payment on the server.
+  // It only changes after a confirmed success or when the admin edits the form.
+  const attemptKey = useRef(newKey());
+  const once = useSingleFlight();
+  const edit = <T,>(setter: (v: T) => void) => (v: T) => {
+    setter(v);
+    attemptKey.current = newKey();
+    setMsg(null);
+  };
 
   const pay = useMutation({
     mutationFn: async () =>
       (
-        await api.post(`/api/billing/invoices/${id}/payments`, {
-          amountRupees: Number(amount),
-          mode,
-          referenceNo: ref || undefined,
-        })
+        await api.post(
+          `/api/billing/invoices/${id}/payments`,
+          { amountRupees: Number(amount), mode, referenceNo: ref.trim() || undefined, paidOn },
+          { headers: { 'Idempotency-Key': attemptKey.current } },
+        )
       ).data,
     onSuccess: (res) => {
-      setMsg(`Payment recorded. Receipt ${res.receipt.receiptNo} generated.`);
+      setMsg({
+        ok: true,
+        text: res.duplicate
+          ? `This payment was already recorded (receipt ${res.receipt?.receiptNo ?? '—'}). No second payment was created.`
+          : `Payment recorded. Receipt ${res.receipt.receiptNo} generated.`,
+      });
       setAmount('');
       setRef('');
+      attemptKey.current = newKey();
       refetch();
     },
-    onError: (e: any) => setMsg(e.response?.data?.error ?? 'Payment failed'),
+    onError: async (e) => {
+      setMsg({ ok: false, text: await apiError(e, 'Payment could not be confirmed. Check the payment history below before trying again.') });
+      refetch(); // show the true state — a timed-out request may still have been recorded
+    },
   });
 
+  const openPdf = async (path: string) => {
+    try {
+      await openProtected(path);
+    } catch (e) {
+      setMsg({ ok: false, text: await apiError(e, 'Could not open the PDF') });
+    }
+  };
+
   if (isLoading) return <div className="flex justify-center py-20"><Spinner /></div>;
+  if (isError) return <p className="text-sm text-red-600">Could not load this invoice. <button className="underline" onClick={() => refetch()}>Retry</button></p>;
   const inv = data?.invoice;
   if (!inv) return <p>Invoice not found.</p>;
   const balance = Number(inv.totalPaise) - Number(inv.amountPaidPaise);
+
+  const amountNum = Number(amount);
+  const amountError =
+    amount.trim() === ''
+      ? ''
+      : !/^\d+(\.\d{1,2})?$/.test(amount.trim())
+        ? 'Enter a rupee amount with at most 2 decimals, e.g. 2300 or 2300.50'
+        : amountNum <= 0
+          ? 'Amount must be greater than zero'
+          : Math.round(amountNum * 100) > balance
+            ? `Amount is more than the balance of ${inr(balance)}`
+            : '';
+  const dateError = paidOn > today() ? 'Payment date cannot be in the future' : '';
+  const canPay = amount.trim() !== '' && !amountError && !dateError && !pay.isPending;
 
   return (
     <div className="space-y-6">
@@ -53,12 +100,23 @@ export default function InvoiceDetail() {
             </Badge>
           </div>
           <p className="text-sm text-slate-500">
-            {inv.student?.fullName ?? 'Walk-in'} · {inv.type} · {inv.createdAt?.slice(0, 10)}
+            {inv.student ? (
+              <Link to={`/students/${inv.student.id}`} className="hover:underline">{inv.student.fullName}</Link>
+            ) : (
+              'Walk-in'
+            )}{' '}
+            · {inv.type} · {inv.createdAt?.slice(0, 10)}
           </p>
+          {inv.enrollment && (
+            <p className="text-xs text-slate-400">
+              {inv.type === 'RENEWAL' ? 'Renewal' : 'Enrolment'}: {inv.enrollment.coursePlan.course.name} — {inv.enrollment.coursePlan.title} ·{' '}
+              {inv.enrollment.startDate.slice(0, 10)} to {inv.enrollment.endDate.slice(0, 10)}
+            </p>
+          )}
         </div>
-        <a href={`${API}/api/billing/invoices/${id}/pdf`} target="_blank" rel="noreferrer">
-          <Button variant="ghost">Download PDF</Button>
-        </a>
+        <Button variant="ghost" onClick={() => openPdf(`/api/billing/invoices/${id}/pdf`)}>
+          Download PDF
+        </Button>
       </div>
 
       <Card>
@@ -92,28 +150,35 @@ export default function InvoiceDetail() {
         </div>
       </Card>
 
-      {balance > 0 && (
+      {balance > 0 && inv.status !== 'CANCELLED' && (
         <Card>
           <h3 className="mb-3 font-semibold">Record payment</h3>
           <div className="flex flex-wrap items-end gap-3">
             <Field label="Amount (₹)">
-              <Input value={amount} onChange={(e) => setAmount(e.target.value)} className="w-32" />
+              <Input inputMode="decimal" value={amount} onChange={(e) => edit(setAmount)(e.target.value)} className="w-32" />
+            </Field>
+            <Field label="Payment date">
+              <Input type="date" max={today()} value={paidOn} onChange={(e) => edit(setPaidOn)(e.target.value)} className="w-40" />
             </Field>
             <Field label="Mode">
-              <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={mode} onChange={(e) => setMode(e.target.value)}>
+              <select className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={mode} onChange={(e) => edit(setMode)(e.target.value)}>
                 {['CASH', 'UPI', 'CARD', 'BANK_TRANSFER', 'OTHER'].map((m) => <option key={m}>{m}</option>)}
               </select>
             </Field>
             <Field label="Reference (optional)">
-              <Input value={ref} onChange={(e) => setRef(e.target.value)} className="w-40" />
+              <Input value={ref} onChange={(e) => edit(setRef)(e.target.value)} className="w-40" />
             </Field>
-            <Button onClick={() => Number(amount) > 0 && pay.mutate()} disabled={pay.isPending}>
+            <Button onClick={() => canPay && once(() => pay.mutateAsync())} disabled={!canPay}>
               {pay.isPending ? 'Saving…' : 'Add payment'}
             </Button>
+            <button type="button" className="pb-2 text-xs text-brand hover:underline" onClick={() => edit(setAmount)((balance / 100).toFixed(2).replace(/\.00$/, ''))}>
+              Full balance ({inr(balance)})
+            </button>
           </div>
-          {msg && <p className="mt-2 text-sm text-slate-500">{msg}</p>}
+          {(amountError || dateError) && <p className="mt-2 text-sm text-red-600">{amountError || dateError}</p>}
         </Card>
       )}
+      {msg && <p className={`text-sm ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</p>}
 
       <Card>
         <h3 className="mb-3 font-semibold">Payments & Receipts</h3>
@@ -130,14 +195,14 @@ export default function InvoiceDetail() {
             <tbody>
               {inv.payments.map((p: any) => (
                 <tr key={p.id} className="border-b border-slate-50">
-                  <td className="py-2">{p.paidAt?.slice(0, 10)}</td>
+                  <td className="py-2">{new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(p.paidAt))}</td>
                   <td className="py-2">{inr(Number(p.amountPaise))}</td>
                   <td className="py-2">{p.mode}{p.referenceNo ? ` (${p.referenceNo})` : ''}</td>
                   <td className="py-2">
                     {p.receipt ? (
-                      <a href={p.receipt.pdfUrl} target="_blank" rel="noreferrer" className="text-brand hover:underline">
+                      <button onClick={() => openPdf(`/api/billing/receipts/${p.receipt.id}/pdf`)} className="text-brand hover:underline">
                         {p.receipt.receiptNo}
-                      </a>
+                      </button>
                     ) : '—'}
                   </td>
                 </tr>

@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { pdfSafe } from './text.js';
 
 const TEAL = rgb(0.05, 0.58, 0.53);
 const BLACK = rgb(0.1, 0.1, 0.1);
@@ -12,6 +13,13 @@ interface InvoiceItemRow {
   unitRupees: number;
   lineRupees: number;
 }
+interface InvoicePaymentRow {
+  date: string;
+  mode: string;
+  referenceNo?: string | null;
+  receiptNo?: string | null;
+  amountRupees: number;
+}
 export interface InvoicePdfData {
   invoiceNo: string;
   date: string;
@@ -24,6 +32,7 @@ export interface InvoicePdfData {
   totalRupees: number;
   paidRupees: number;
   status: string;
+  payments?: InvoicePaymentRow[];
 }
 
 function header(page: PDFPage, bold: PDFFont, font: PDFFont, title: string, y: number): number {
@@ -40,13 +49,14 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   const page = doc.addPage([595, 842]);
   const width = page.getWidth();
   let y = page.getHeight() - MARGIN;
+  const safe = (t: string, f: PDFFont = font) => pdfSafe(f, t);
 
   y = header(page, bold, font, 'INVOICE', y);
 
-  page.drawText(`Invoice No: ${data.invoiceNo}`, { x: MARGIN, y, size: 10, font: bold });
-  page.drawText(`Date: ${data.date}`, { x: width - MARGIN - 120, y, size: 10, font });
+  page.drawText(safe(`Invoice No: ${data.invoiceNo}`, bold), { x: MARGIN, y, size: 10, font: bold });
+  page.drawText(safe(`Date: ${data.date}`), { x: width - MARGIN - 120, y, size: 10, font });
   y -= 16;
-  page.drawText(`Bill To: ${data.studentName}${data.studentMobile ? ` · ${data.studentMobile}` : ''}`, {
+  page.drawText(safe(`Bill To: ${data.studentName}${data.studentMobile ? ` · ${data.studentMobile}` : ''}`), {
     x: MARGIN,
     y,
     size: 10,
@@ -64,7 +74,7 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   y -= 22;
 
   for (const it of data.items) {
-    page.drawText(it.description.slice(0, 60), { x: cols.desc + 4, y, size: 9, font });
+    page.drawText(safe(it.description).slice(0, 60), { x: cols.desc + 4, y, size: 9, font });
     page.drawText(String(it.qty), { x: cols.qty, y, size: 9, font });
     page.drawText(inr(it.unitRupees), { x: cols.unit, y, size: 9, font });
     page.drawText(inr(it.lineRupees), { x: cols.line, y, size: 9, font });
@@ -85,7 +95,21 @@ export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> 
   totalsRow('Paid', inr(data.paidRupees));
   totalsRow('Balance', inr(data.totalRupees - data.paidRupees), true);
 
-  page.drawText(`Status: ${data.status}`, { x: MARGIN, y: y, size: 10, font: bold, color: TEAL });
+  page.drawText(safe(`Status: ${data.status}`, bold), { x: MARGIN, y: y, size: 10, font: bold, color: TEAL });
+
+  // Payment history, so the printed invoice shows how "Paid" was reached.
+  if (data.payments?.length) {
+    y -= 28;
+    page.drawText('Payments received', { x: MARGIN, y, size: 10, font: bold });
+    y -= 16;
+    for (const p of data.payments.slice(0, 12)) {
+      const line = `${p.date}   ${p.mode}${p.referenceNo ? ` (${p.referenceNo})` : ''}${p.receiptNo ? `   Receipt ${p.receiptNo}` : ''}`;
+      page.drawText(safe(line).slice(0, 80), { x: MARGIN + 4, y, size: 9, font });
+      page.drawText(inr(p.amountRupees), { x: cols.line, y, size: 9, font });
+      y -= 14;
+    }
+  }
+
   page.drawText('Thank you for practicing with Moksha Wellness.', {
     x: MARGIN,
     y: MARGIN,
@@ -105,6 +129,10 @@ export interface ReceiptPdfData {
   amountRupees: number;
   mode: string;
   referenceNo?: string | null;
+  /** Invoice position as of now, printed so the receipt reconciles with the invoice. */
+  invoiceTotalRupees?: number;
+  paidToDateRupees?: number;
+  balanceRupees?: number;
 }
 
 export async function generateReceiptPdf(data: ReceiptPdfData): Promise<Buffer> {
@@ -118,7 +146,7 @@ export async function generateReceiptPdf(data: ReceiptPdfData): Promise<Buffer> 
 
   const row = (label: string, value: string) => {
     page.drawText(label, { x: MARGIN, y, size: 10, font: bold });
-    page.drawText(value, { x: MARGIN + 130, y, size: 10, font });
+    page.drawText(pdfSafe(font, value), { x: MARGIN + 130, y, size: 10, font });
     y -= 20;
   };
   row('Receipt No', data.receiptNo);
@@ -128,6 +156,13 @@ export async function generateReceiptPdf(data: ReceiptPdfData): Promise<Buffer> 
   row('Payment Mode', data.mode + (data.referenceNo ? ` (${data.referenceNo})` : ''));
   y -= 6;
   page.drawText(`Amount Received: ${inr(data.amountRupees)}`, { x: MARGIN, y, size: 13, font: bold, color: TEAL });
+
+  if (data.invoiceTotalRupees != null && data.paidToDateRupees != null && data.balanceRupees != null) {
+    y -= 30;
+    row('Invoice Total', inr(data.invoiceTotalRupees));
+    row('Paid To Date', inr(data.paidToDateRupees));
+    row('Balance Due', inr(data.balanceRupees));
+  }
 
   page.drawText('This is a computer-generated receipt.', { x: MARGIN, y: MARGIN, size: 8, font, color: GREY });
   return Buffer.from(await doc.save());

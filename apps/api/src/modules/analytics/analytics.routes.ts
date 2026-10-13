@@ -2,11 +2,11 @@ import { Router } from 'express';
 import { prisma } from '../../lib/prisma.js';
 import { asyncHandler } from '../../lib/http.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { addDaysISO, dateOnly, today } from '../../lib/dates.js';
 
 export const analyticsRouter = Router();
 analyticsRouter.use(requireAuth);
 
-const DAY = 86_400_000;
 const rupees = (paise: bigint | number | null | undefined) => (paise == null ? 0 : Number(paise) / 100);
 
 analyticsRouter.get(
@@ -16,7 +16,9 @@ analyticsRouter.get(
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const in30 = new Date(Date.now() + 30 * DAY);
+    // Enrolment dates are calendar dates in the business timezone.
+    const todayDate = dateOnly(today());
+    const in30 = dateOnly(addDaysISO(today(), 30));
 
     const [
       revToday,
@@ -36,7 +38,13 @@ analyticsRouter.get(
       prisma.payment.aggregate({ _sum: { amountPaise: true }, where: { paidAt: { gte: startOfToday } } }),
       prisma.payment.aggregate({ _sum: { amountPaise: true }, where: { paidAt: { gte: startOfMonth } } }),
       prisma.invoice.findMany({ where: { status: { in: ['UNPAID', 'PARTIAL'] } }, select: { totalPaise: true, amountPaidPaise: true } }),
-      prisma.student.count({ where: { status: 'ACTIVE' } }),
+      // Active = not manually deactivated AND holding an enrolment that is valid today.
+      prisma.student.count({
+        where: {
+          status: 'ACTIVE',
+          enrollments: { some: { status: 'ACTIVE', startDate: { lte: todayDate }, endDate: { gte: todayDate } } },
+        },
+      }),
       prisma.student.count({ where: { createdAt: { gte: startOfMonth } } }),
       prisma.enrollment.count({ where: { status: 'ACTIVE', endDate: { lte: in30 } } }),
       prisma.lead.groupBy({ by: ['source'], _count: { _all: true } }),

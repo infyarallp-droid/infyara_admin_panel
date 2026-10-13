@@ -3,6 +3,7 @@ import { Router, type Request } from 'express';
 import { env } from '../lib/env.js';
 import { asyncHandler } from '../lib/http.js';
 import { createLead, logWebhook } from '../modules/leads/leads.service.js';
+import { applyDeliveryStatus } from '../modules/messaging/messaging.service.js';
 
 // Meta WhatsApp Business Cloud API webhook.
 // GET  = verification handshake (hub.challenge).
@@ -51,6 +52,12 @@ whatsappRouter.post(
       for (const entry of entries) {
         for (const change of entry.changes ?? []) {
           const value = change.value ?? {};
+          // Delivery receipts for messages we sent (sent → delivered → read / failed).
+          for (const st of value.statuses ?? []) {
+            if (st?.id && st?.status) {
+              await applyDeliveryStatus(String(st.id), String(st.status), st.errors?.[0]?.title);
+            }
+          }
           const contactName = value.contacts?.[0]?.profile?.name;
           for (const msg of value.messages ?? []) {
             const text = msg.text?.body ?? msg.button?.text ?? `[${msg.type}]`;
