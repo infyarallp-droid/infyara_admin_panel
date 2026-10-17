@@ -11,6 +11,7 @@ import {
   sendLoggedTemplate,
   type SendOutcome,
 } from '../modules/messaging/messaging.service.js';
+import { enabledRules } from '../modules/messaging/rules.service.js';
 
 export interface ReminderSummary {
   renewalsChecked: number;
@@ -23,6 +24,8 @@ export interface ReminderSummary {
   /** Not sent because credentials are missing (logged as NOT_CONFIGURED). */
   whatsappNotConfigured: number;
   whatsappInvalidRecipient: number;
+  /** Not sent: no recorded WhatsApp opt-in for the student's number. */
+  whatsappNoConsent: number;
   /** Kept for backwards compatibility: everything that was not sent. */
   whatsappSkipped: number;
   rateLimited: boolean;
@@ -74,11 +77,13 @@ export async function runReminders(triggeredBy = 'CRON'): Promise<ReminderSummar
     whatsappFailed: 0,
     whatsappNotConfigured: 0,
     whatsappInvalidRecipient: 0,
+    whatsappNoConsent: 0,
     whatsappSkipped: 0,
     rateLimited: false,
     lowStockNotifications: 0,
   };
 
+  const renewalRuleActive = (await enabledRules('ENROLLMENT_EXPIRY')).length > 0;
   const enrollments = await prisma.enrollment.findMany({
     where: { status: 'ACTIVE', endDate: { lte: dateOnly(addDaysISO(todayStr, maxOffset)) } },
     include: { student: true, coursePlan: { include: { course: true } } },
@@ -113,6 +118,8 @@ export async function runReminders(triggeredBy = 'CRON'): Promise<ReminderSummar
     // After a rate-limit response, stop calling the provider for this run; the
     // unsent reminders stay un-logged and are picked up by the next run.
     if (summary.rateLimited) continue;
+    // An enabled "Renewal reminder" rule (WhatsApp → Rules) replaces this built-in reminder.
+    if (renewalRuleActive) continue;
     const result = await sendRenewalReminder(enr, triggeredBy);
     if (!result) continue;
     if (result.outcome === 'SENT') summary.whatsappSent++;
@@ -121,6 +128,7 @@ export async function runReminders(triggeredBy = 'CRON'): Promise<ReminderSummar
       if (result.outcome === 'DUPLICATE') summary.whatsappDuplicate++;
       else if (result.outcome === 'NOT_CONFIGURED') summary.whatsappNotConfigured++;
       else if (result.outcome === 'INVALID_RECIPIENT') summary.whatsappInvalidRecipient++;
+      else if (result.outcome === 'NO_CONSENT') summary.whatsappNoConsent++;
       else summary.whatsappFailed++;
     }
     if (result.rateLimited) summary.rateLimited = true;

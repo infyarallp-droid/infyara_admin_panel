@@ -4,6 +4,9 @@ import { env } from '../lib/env.js';
 import { asyncHandler } from '../lib/http.js';
 import { createLead, logWebhook } from '../modules/leads/leads.service.js';
 import { applyDeliveryStatus } from '../modules/messaging/messaging.service.js';
+import { consentKeyword, recordConsent } from '../modules/messaging/consent.service.js';
+import { normalizeMobile } from '@moksha/shared';
+import { prisma } from '../lib/prisma.js';
 
 // Meta WhatsApp Business Cloud API webhook.
 // GET  = verification handshake (hub.challenge).
@@ -22,7 +25,8 @@ whatsappRouter.get('/', (req, res) => {
 });
 
 function verifySignature(req: Request): boolean | null {
-  if (!env.WHATSAPP_APP_SECRET) return null; // not configured → skip (dev)
+  // Without the app secret nothing can be verified: allowed only outside production.
+  if (!env.WHATSAPP_APP_SECRET) return env.NODE_ENV === 'production' ? false : null;
   const sig = req.headers['x-hub-signature-256'];
   const raw = (req as Request & { rawBody?: Buffer }).rawBody;
   if (typeof sig !== 'string' || !raw) return false;
@@ -61,6 +65,20 @@ whatsappRouter.post(
           const contactName = value.contacts?.[0]?.profile?.name;
           for (const msg of value.messages ?? []) {
             const text = msg.text?.body ?? msg.button?.text ?? `[${msg.type}]`;
+            // "STOP" / "START" replies change the sender's WhatsApp consent.
+            const keyword = consentKeyword(String(text));
+            const local = msg.from ? normalizeMobile(String(msg.from)) : null;
+            if (keyword && local) {
+              const student = await prisma.student.findUnique({ where: { mobile: local }, select: { id: true } });
+              await recordConsent({
+                mobile: local,
+                state: keyword,
+                source: 'INBOUND_KEYWORD',
+                consentText: `Replied "${String(text).trim().slice(0, 40)}" on WhatsApp`,
+                studentId: student?.id ?? null,
+              });
+              continue; // a consent keyword is not a sales lead
+            }
             await createLead({
               name: contactName,
               phone: msg.from,

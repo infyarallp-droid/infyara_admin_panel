@@ -49,7 +49,7 @@ async function nextNumber(tx: Tx, kind: 'invoice' | 'receipt'): Promise<string> 
   return `${prefix}${String(n).padStart(4, '0')}`;
 }
 
-function totals(subtotalPaise: bigint, discountPaise: bigint) {
+export function totals(subtotalPaise: bigint, discountPaise: bigint) {
   const taxable = subtotalPaise - discountPaise;
   const taxPaise = BigInt(Math.round(Number(taxable) * (env.TAX_PERCENT / 100)));
   const totalPaise = taxable + taxPaise;

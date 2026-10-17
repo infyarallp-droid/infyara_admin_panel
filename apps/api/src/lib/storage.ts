@@ -43,7 +43,11 @@ const SIGNED_URL_TTL = 60 * 60 * 24 * 365; // 1 year
 
 async function putSupabase(key: string, data: Buffer, contentType?: string): Promise<StoredFile> {
   const sb = supabase();
-  if (!sb) return putLocal(key, data); // misconfigured → don't lose the file
+  if (!sb) {
+    // On a server with an ephemeral disk a "local" fallback silently loses the file on the next deploy.
+    if (env.NODE_ENV === 'production') throw new Error('File storage is unavailable (SUPABASE_URL / SUPABASE_SERVICE_KEY not set)');
+    return putLocal(key, data);
+  }
   const { error } = await sb.storage
     .from(env.SUPABASE_BUCKET)
     .upload(key, data, { contentType, upsert: true });
@@ -102,3 +106,62 @@ export async function putDataUrl(prefix: string, dataUrl: string): Promise<Store
 }
 
 export const uploadDir = UPLOAD_DIR;
+
+// ── Public website media (team photos, testimonials, gallery) ──
+// Stored in a separate PUBLIC bucket so the website can serve them directly with
+// permanent URLs. Never put private documents here.
+
+/** Store a public file; returns its permanent public URL. */
+export async function putPublicObject(prefix: string, filename: string, data: Buffer, contentType: string): Promise<StoredFile> {
+  const key = safeKey(prefix, filename);
+  if (env.STORAGE_PROVIDER === 'supabase') {
+    const sb = supabase();
+    if (sb) {
+      const { error } = await sb.storage
+        .from(env.SUPABASE_PUBLIC_BUCKET)
+        .upload(key, data, { contentType, upsert: false, cacheControl: '31536000' });
+      if (error) throw new Error(`Supabase upload failed: ${error.message}`);
+      const { data: pub } = sb.storage.from(env.SUPABASE_PUBLIC_BUCKET).getPublicUrl(key);
+      return { key, url: pub.publicUrl };
+    }
+    if (env.NODE_ENV === 'production') throw new Error('File storage is unavailable (SUPABASE_URL / SUPABASE_SERVICE_KEY not set)');
+  }
+  const stored = await putLocal(`public/${key}`, data);
+  return { key, url: stored.url };
+}
+
+/** Remove a public file (best effort — a missing file is not an error). */
+export async function deletePublicObject(key: string): Promise<void> {
+  if (env.STORAGE_PROVIDER === 'supabase') {
+    const sb = supabase();
+    if (sb) {
+      await sb.storage.from(env.SUPABASE_PUBLIC_BUCKET).remove([key]);
+      return;
+    }
+  }
+  const full = path.resolve(UPLOAD_DIR, 'public', key);
+  if (!full.startsWith(UPLOAD_DIR + path.sep)) return;
+  await fs.rm(full, { force: true });
+}
+
+export type MediaType = { kind: 'IMAGE' | 'VIDEO'; mime: string; ext: string };
+
+/**
+ * Identify an upload from its first bytes (never trust the browser's file name or type).
+ * Only formats a browser can show safely are accepted — no SVG (it can carry scripts).
+ */
+export function sniffMedia(buf: Buffer): MediaType | null {
+  const b = buf.subarray(0, 16);
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { kind: 'IMAGE', mime: 'image/jpeg', ext: '.jpg' };
+  if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { kind: 'IMAGE', mime: 'image/png', ext: '.png' };
+  if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return { kind: 'IMAGE', mime: 'image/webp', ext: '.webp' };
+  if (b.toString('latin1', 0, 6) === 'GIF87a' || b.toString('latin1', 0, 6) === 'GIF89a') return { kind: 'IMAGE', mime: 'image/gif', ext: '.gif' };
+  if (b.toString('latin1', 4, 8) === 'ftyp') {
+    const brand = b.toString('latin1', 8, 12);
+    if (['avif', 'avis'].includes(brand)) return { kind: 'IMAGE', mime: 'image/avif', ext: '.avif' };
+    if (brand.startsWith('qt')) return { kind: 'VIDEO', mime: 'video/quicktime', ext: '.mov' };
+    return { kind: 'VIDEO', mime: 'video/mp4', ext: '.mp4' };
+  }
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return { kind: 'VIDEO', mime: 'video/webm', ext: '.webm' };
+  return null;
+}

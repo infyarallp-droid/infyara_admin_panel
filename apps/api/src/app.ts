@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { env } from './lib/env.js';
+
 import { prisma } from './lib/prisma.js';
 import { errorHandler } from './lib/http.js';
 import { uploadDir } from './lib/storage.js';
@@ -20,12 +20,25 @@ import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 import { publicLeadsRouter } from './webhooks/publicLeads.js';
 import { googleFormRouter } from './webhooks/googleForm.js';
 import { whatsappRouter } from './webhooks/whatsapp.js';
+import { razorpayRouter } from './webhooks/razorpay.js';
+import { customerAuthRouter } from './modules/customer-auth/customerAuth.routes.js';
+import { accountRouter } from './modules/account/account.routes.js';
+import { websiteLoginsRouter } from './modules/website-logins/websiteLogins.routes.js';
+import { cmsRouter } from './modules/cms/cms.routes.js';
+import { publicContentRouter } from './modules/cms/public.routes.js';
+import { whatsappAdminRouter } from './modules/whatsapp/whatsapp.routes.js';
+import { paymentsRouter } from './modules/payments/payments.routes.js';
+import { jobsRouter, systemRouter } from './modules/system/system.routes.js';
+import { webOrigins } from './lib/env.js';
 
 // The Express app, without the listener — imported by index.ts and by the tests.
 export const app = express();
 
+// Render / Vercel sit behind one proxy hop; needed for correct client IPs.
+app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
+// Only the admin panel's origin(s) may call the API from a browser. The website calls server-to-server.
+app.use(cors({ origin: webOrigins.length === 1 ? webOrigins[0] : webOrigins, credentials: true }));
 // Capture the raw body so WhatsApp's X-Hub-Signature-256 can be verified.
 app.use(
   express.json({
@@ -66,5 +79,21 @@ app.use('/api/analytics', analyticsRouter);
 app.use('/api/public/leads', publicLeadsRouter);
 app.use('/webhooks/google-form', googleFormRouter);
 app.use('/webhooks/whatsapp', whatsappRouter);
+app.use('/webhooks/razorpay', razorpayRouter);
 
+// Website accounts (called by the website's server with the service key)
+app.use('/api/customer-auth', customerAuthRouter);
+app.use('/api/account', accountRouter);
+// Public website content (read-only)
+app.use('/api/public', publicContentRouter);
+// Admin modules
+app.use('/api/website-logins', websiteLoginsRouter);
+app.use('/api/cms', cmsRouter);
+app.use('/api/whatsapp', whatsappAdminRouter);
+app.use('/api/payments', paymentsRouter);
+app.use('/api/system', systemRouter);
+// Scheduler entry point (CRON_SECRET)
+app.use('/internal/jobs', jobsRouter);
+
+app.use((_req, res) => res.status(404).json({ ok: false, error: 'Not found' }));
 app.use(errorHandler);

@@ -2,8 +2,10 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { env } from '../../lib/env.js';
 import { isWhatsAppConfigured, sendWhatsAppTemplate, toWhatsAppRecipient } from '../../lib/whatsappSend.js';
+import { mayMessage } from './consent.service.js';
+import { fireEventRules } from './rules.service.js';
 
-export type MessageEvent = 'RENEWAL_REMINDER' | 'PAYMENT_RECEIVED' | 'ADMISSION_CONFIRMATION';
+export type MessageEvent = 'RENEWAL_REMINDER' | 'PAYMENT_RECEIVED' | 'ADMISSION_CONFIRMATION' | 'RULE' | 'CAMPAIGN';
 
 export type MessageOutcome =
   | 'SENT'
@@ -11,10 +13,16 @@ export type MessageOutcome =
   | 'DUPLICATE' // already sent (or in flight) for this event + window
   | 'NOT_CONFIGURED' // credentials/template missing — logged as pending setup, never as success
   | 'INVALID_RECIPIENT'
+  | 'NO_CONSENT' // no recorded WhatsApp opt-in for this number — never sent
   | 'MAX_ATTEMPTS';
 
 export interface SendArgs {
   event: MessageEvent;
+  /** Template language (defaults to WHATSAPP_TEMPLATE_LANG). */
+  language?: string;
+  templateId?: string | null;
+  ruleId?: string | null;
+  campaignId?: string | null;
   /** Identifies "this event for this window"; the same key is delivered at most once. */
   dedupeKey: string;
   studentId?: string | null;
@@ -48,6 +56,9 @@ export async function sendLoggedTemplate(args: SendArgs): Promise<SendOutcome> {
     templateName: args.templateName,
     params: args.params,
     triggeredBy: args.triggeredBy,
+    templateId: args.templateId ?? null,
+    ruleId: args.ruleId ?? null,
+    campaignId: args.campaignId ?? null,
   };
 
   const existing = await prisma.messageLog.findUnique({ where: { dedupeKey: args.dedupeKey } });
@@ -59,6 +70,17 @@ export async function sendLoggedTemplate(args: SendArgs): Promise<SendOutcome> {
     if (existing.status === 'FAILED' && existing.attempts >= env.WHATSAPP_MAX_ATTEMPTS) {
       return { outcome: 'MAX_ATTEMPTS', logId: existing.id, error: existing.error ?? undefined };
     }
+  }
+
+  // Business-initiated messages go only to numbers with a recorded opt-in.
+  if (!(await mayMessage(args.mobile))) {
+    const error = 'No WhatsApp opt-in recorded for this number';
+    const log = await prisma.messageLog.upsert({
+      where: { dedupeKey: args.dedupeKey },
+      create: { ...base, dedupeKey: args.dedupeKey, recipient: toWhatsAppRecipient(args.mobile), status: 'NO_CONSENT', error },
+      update: { ...base, status: 'NO_CONSENT', error },
+    });
+    return { outcome: 'NO_CONSENT', logId: log.id, error };
   }
 
   const recipient = toWhatsAppRecipient(args.mobile);
@@ -96,7 +118,7 @@ export async function sendLoggedTemplate(args: SendArgs): Promise<SendOutcome> {
     logId = existing.id;
   }
 
-  const result = await sendWhatsAppTemplate(recipient, args.templateName, args.params);
+  const result = await sendWhatsAppTemplate(recipient, args.templateName, args.params, args.language);
   if (result.ok) {
     await prisma.messageLog.update({
       where: { id: logId },
@@ -144,6 +166,23 @@ export async function notifyPaymentReceived(a: {
   invoiceNo: string;
   balanceRupees: number;
 }): Promise<SendOutcome | null> {
+  // An enabled "Payment confirmation" rule (WhatsApp → Rules) takes over from the env template.
+  const payment = await prisma.payment.findUnique({
+    where: { id: a.paymentId },
+    include: { invoice: { include: { enrollment: { include: { coursePlan: { include: { course: true } } } } } } },
+  });
+  if (payment) {
+    const viaRules = await fireEventRules('PAYMENT_RECEIVED', {
+      studentId: a.studentId,
+      mobile: a.mobile,
+      entityId: a.paymentId,
+      student: { fullName: a.studentName },
+      invoice: payment.invoice,
+      enrollment: payment.invoice.enrollment,
+      amountPaise: payment.amountPaise,
+    });
+    if (viaRules) return viaRules[0] ?? null;
+  }
   if (!env.WHATSAPP_PAYMENT_TEMPLATE) return null;
   const money = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2 });
   return sendLoggedTemplate({
@@ -166,6 +205,21 @@ export async function notifyAdmission(a: {
   courseLabel: string;
   startDate: string;
 }): Promise<SendOutcome | null> {
+  const enrollment = await prisma.enrollment.findUnique({
+    where: { id: a.enrollmentId },
+    include: { coursePlan: { include: { course: true } } },
+  });
+  if (enrollment) {
+    const viaRules = await fireEventRules('ENROLLMENT_CREATED', {
+      studentId: a.studentId,
+      mobile: a.mobile,
+      entityId: a.enrollmentId,
+      enrollmentId: a.enrollmentId,
+      student: { fullName: a.studentName },
+      enrollment,
+    });
+    if (viaRules) return viaRules[0] ?? null;
+  }
   if (!env.WHATSAPP_ADMISSION_TEMPLATE) return null;
   return sendLoggedTemplate({
     event: 'ADMISSION_CONFIRMATION',

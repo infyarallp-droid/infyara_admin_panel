@@ -9,6 +9,7 @@ import { dateOnly, requireISODate, today, toISODate } from '../../lib/dates.js';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { invoiceSummarySelect, presentEnrollment } from '../enrollments/enrollments.service.js';
 import { studentImportRouter } from './students.import.routes.js';
+import { recordConsent } from '../messaging/consent.service.js';
 
 export const studentsRouter = Router();
 studentsRouter.use(requireAuth);
@@ -199,7 +200,13 @@ studentsRouter.post(
   '/',
   manage,
   asyncHandler(async (req, res) => {
-    const input = studentSchema.extend({ confirmDifferentPerson: z.boolean().default(false) }).parse(req.body);
+    const input = studentSchema
+      .extend({
+        confirmDifferentPerson: z.boolean().default(false),
+        // Staff confirm the student agreed (in person / on the admission form) to WhatsApp messages.
+        whatsappConsent: z.boolean().default(false),
+      })
+      .parse(req.body);
     const data = toModel(input);
 
     const byMobile = await prisma.student.findUnique({ where: { mobile: data.mobile } });
@@ -224,6 +231,16 @@ studentsRouter.post(
     const student = await prisma.$transaction(async (tx) =>
       tx.student.create({ data: { ...data, studentCode: await nextStudentCode(tx), createdById: req.user!.sub } }),
     );
+    if (input.whatsappConsent) {
+      await recordConsent({
+        mobile: student.mobile,
+        state: 'OPTED_IN',
+        source: 'STAFF_RECORDED',
+        consentText: 'Agreed to WhatsApp reminders at admission (recorded by staff)',
+        studentId: student.id,
+        recordedById: req.user!.sub,
+      });
+    }
     res.status(201).json({ ok: true, student });
   }),
 );
