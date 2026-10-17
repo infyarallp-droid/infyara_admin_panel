@@ -42,6 +42,7 @@ const empty = {
   emergencyContactPhone: '',
   emergencyContactRelation: '',
   isMinor: false,
+  whatsappConsent: false,
 };
 
 export default function Students() {
@@ -313,6 +314,13 @@ function StudentDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={form.isMinor} onChange={(e) => set('isMinor', e.target.checked)} />
             Student is a minor (guardian signature required)
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={form.whatsappConsent} onChange={(e) => set('whatsappConsent', e.target.checked)} />
+            <span>
+              Student agreed to receive WhatsApp reminders
+              <span className="block text-xs text-slate-400">Tick only if they said yes (in person or on the admission form). Without it, no WhatsApp messages are sent.</span>
+            </span>
           </label>
           {error && <p className="text-sm text-red-600">{error}</p>}
           {emailConflict && (
