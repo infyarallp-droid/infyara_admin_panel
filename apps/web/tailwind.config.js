@@ -5,13 +5,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Sampled from the Moksha Wellness logo (deep green lotus, red bindu).
+        // Sampled from the Moksha Wellness logo (deep green lotus #093a18, maroon bindu #82171c).
         brand: {
-          DEFAULT: '#17643c',
-          fg: '#0f4a2c',
-          soft: '#e7f1eb',
+          DEFAULT: '#0e4a22',
+          fg: '#093a18',
+          soft: '#e6efe8',
         },
-        bindu: '#d81e2c',
+        bindu: '#82171c',
       },
       borderRadius: {
         '2xl': '1rem',

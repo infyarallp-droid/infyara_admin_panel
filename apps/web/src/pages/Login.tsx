@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { Button, Field, Input } from '../components/ui';
+import logo from '../assets/logo.png';
 
 export default function Login() {
   const { login } = useAuth();
@@ -28,7 +29,7 @@ export default function Login() {
   return (
     <div className="grid min-h-screen place-items-center bg-[#faf6ef] px-4 py-10">
       <div className="w-full max-w-sm">
-        <img src="/logo.png" alt="Moksha Wellness — Yoga and Pilates" className="mx-auto mb-8 h-auto w-48" />
+        <img src={logo} alt="Moksha Wellness — established 2025" className="mx-auto mb-8 h-auto w-48" />
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h1 className="text-lg font-semibold text-slate-900">Staff sign in</h1>
           <p className="mb-5 text-sm text-slate-500">Admin panel for studio staff.</p>

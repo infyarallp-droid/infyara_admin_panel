@@ -305,19 +305,52 @@ export const passwordSchema = z
 export const WHATSAPP_CONSENT_TEXT =
   'I agree to receive class reminders, payment updates and studio announcements from Moksha Wellness on WhatsApp. I can opt out at any time by replying STOP or from my account settings.';
 
-export const customerSignupSchema = z.object({
-  fullName: z.string().trim().min(2, 'Please enter your full name').max(80),
-  mobile: mobileField,
-  email: z.string().trim().max(120).email('Enter a valid email address').optional().or(z.literal('')),
-  password: passwordSchema,
-  whatsappOptIn: z.boolean().default(false),
-});
+/** Emails are compared and stored lower-case. */
+const emailField = z
+  .string()
+  .trim()
+  .max(120)
+  .email('Enter a valid email address')
+  .transform((v) => v.toLowerCase());
+
+export const customerSignupSchema = z
+  .object({
+    /** How the person chose to sign up. Either way the mobile number is mandatory. */
+    method: z.enum(['MOBILE_PASSWORD', 'EMAIL_PASSWORD']).default('MOBILE_PASSWORD'),
+    fullName: z.string().trim().min(2, 'Please enter your full name').max(80),
+    mobile: mobileField,
+    email: emailField.optional().or(z.literal('').transform(() => undefined)),
+    password: passwordSchema,
+    whatsappOptIn: z.boolean().default(false),
+  })
+  .superRefine((v, ctx) => {
+    if (v.method === 'EMAIL_PASSWORD' && !v.email) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['email'], message: 'Enter your email address' });
+    }
+  });
 export type CustomerSignupInput = z.infer<typeof customerSignupSchema>;
 
-export const customerLoginSchema = z.object({
-  mobile: mobileField,
-  password: z.string().min(1, 'Enter your password').max(200),
-});
+/** Sign in with a mobile number or an email address, plus the password. */
+export const customerLoginSchema = z
+  .object({
+    identifier: z.string().trim().max(120).optional(),
+    /** Older clients send the mobile number in this field. */
+    mobile: z.string().trim().max(30).optional(),
+    password: z.string().min(1, 'Enter your password').max(200),
+  })
+  .transform((v, ctx) => {
+    const raw = (v.identifier || v.mobile || '').trim();
+    if (raw.includes('@')) {
+      const email = emailField.safeParse(raw);
+      if (email.success) return { kind: 'email' as const, email: email.data, password: v.password };
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['identifier'], message: 'Enter a valid email address' });
+      return z.NEVER;
+    }
+    const mobile = normalizeIndianMobile(raw);
+    if (mobile) return { kind: 'mobile' as const, mobile, password: v.password };
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['identifier'], message: 'Enter your 10-digit mobile number or your email address' });
+    return z.NEVER;
+  });
 
 /** Second step of "Continue with Google": every account must have a mobile number. */
 export const googleCompleteSchema = z.object({
@@ -329,7 +362,7 @@ export const googleCompleteSchema = z.object({
 
 export const accountProfileSchema = z.object({
   fullName: z.string().trim().min(2, 'Please enter your full name').max(80),
-  email: z.string().trim().max(120).email('Enter a valid email address').optional().or(z.literal('')),
+  email: emailField.optional().or(z.literal('').transform(() => undefined)),
 });
 
 // ───────────────────────── Website content (CMS) ─────────────────────────

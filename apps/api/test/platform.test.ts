@@ -749,3 +749,75 @@ describe('Online payments (Razorpay)', () => {
     assert.equal(razorpayMock.badAuth, 0, 'every gateway call was authenticated');
   });
 });
+
+// ───────────────────────── Email sign-in (mobile still mandatory) ─────────────────────────
+
+describe('Sign up and sign in with email', () => {
+  const emailSignup = (body: Record<string, unknown>) =>
+    site('POST', '/api/customer-auth/signup', { body: { method: 'EMAIL_PASSWORD', fullName: 'Email Person', password: 'Lotus2024', ...body } });
+
+  it('an email sign-up still requires a mobile number, and the email', async () => {
+    const noMobile = await emailSignup({ email: 'nomobile@example.com' });
+    assert.equal(noMobile.status, 400);
+    const noEmail = await emailSignup({ mobile: nextMobile() });
+    assert.equal(noEmail.status, 400);
+    assert.match(JSON.stringify(noEmail.body), /email/i);
+  });
+
+  it('signs in with the email (any case) or the mobile number', async () => {
+    const mobile = nextMobile();
+    const res = await emailSignup({ email: 'Asha.Rao@Example.COM', mobile });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    assert.equal(res.body.account.email, 'asha.rao@example.com', 'stored lower-case');
+    assert.equal(res.body.account.mobile, mobile);
+    assert.equal(res.body.account.signupMethod, 'EMAIL_PASSWORD');
+
+    const byEmail = await site('POST', '/api/customer-auth/login', { body: { identifier: ' ASHA.rao@example.com ', password: 'Lotus2024' } });
+    assert.equal(byEmail.status, 200);
+    const byMobile = await site('POST', '/api/customer-auth/login', { body: { identifier: `+91 ${mobile}`, password: 'Lotus2024' } });
+    assert.equal(byMobile.status, 200);
+    const legacy = await site('POST', '/api/customer-auth/login', { body: { mobile, password: 'Lotus2024' } });
+    assert.equal(legacy.status, 200, 'older clients sending { mobile } still work');
+
+    const wrong = await site('POST', '/api/customer-auth/login', { body: { identifier: 'asha.rao@example.com', password: 'nope-nope1' } });
+    const unknown = await site('POST', '/api/customer-auth/login', { body: { identifier: 'nobody@example.com', password: 'nope-nope1' } });
+    assert.equal(wrong.status, 401);
+    assert.equal(unknown.status, 401);
+    assert.equal(wrong.body.error, 'Email or password is incorrect.');
+    assert.equal(unknown.body.error, wrong.body.error, 'no hint whether the email is registered');
+    const bad = await site('POST', '/api/customer-auth/login', { body: { identifier: 'not-an-email@', password: 'x' } });
+    assert.equal(bad.status, 400);
+
+    const event = await prisma.customerLoginEvent.findFirstOrThrow({ where: { accountId: res.body.account.id, method: 'EMAIL_PASSWORD', success: true, reason: null } });
+    assert.ok(event);
+    const list = await call('GET', '/api/website-logins?method=EMAIL_PASSWORD', { token: admin });
+    assert.ok(list.body.accounts.some((a: any) => a.id === res.body.account.id));
+  });
+
+  it('one email per account, whatever the letter case, including profile changes', async () => {
+    await emailSignup({ email: 'meera@example.com', mobile: nextMobile() });
+    const dup = await emailSignup({ email: 'MEERA@example.com', mobile: nextMobile() });
+    assert.equal(dup.status, 409);
+    assert.equal(dup.body.code, 'EMAIL_TAKEN');
+    // A mobile sign-up that includes someone else's email is refused too.
+    const viaMobile = await site('POST', '/api/customer-auth/signup', { body: { fullName: 'Other', mobile: nextMobile(), email: 'meera@example.com', password: 'Lotus2024' } });
+    assert.equal(viaMobile.status, 409);
+
+    const other = await signup();
+    const steal = await site('PATCH', '/api/account/profile', { session: other.token, body: { fullName: 'Other Person', email: 'Meera@Example.com' } });
+    assert.equal(steal.status, 409);
+    const own = await site('PATCH', '/api/account/profile', { session: other.token, body: { fullName: 'Other Person', email: 'other.person@example.com' } });
+    assert.equal(own.status, 200);
+    assert.equal(own.body.account.email, 'other.person@example.com');
+  });
+
+  it('Google sign-up never takes over an email another account already uses', async () => {
+    await emailSignup({ email: 'kiran@gmail.com', mobile: nextMobile() });
+    const first = await site('POST', '/api/customer-auth/google', { body: { idToken: await googleIdToken({ sub: 'google-sub-email-1', email: 'Kiran@gmail.com' }) } });
+    assert.equal(first.body.status, 'NEEDS_MOBILE');
+    const done = await site('POST', '/api/customer-auth/google/complete', { body: { pendingToken: first.body.pendingToken, fullName: 'Kiran G', mobile: nextMobile() } });
+    assert.equal(done.status, 409);
+    assert.equal(done.body.code, 'EMAIL_TAKEN');
+    assert.equal(await prisma.authIdentity.count({ where: { subject: 'google-sub-email-1' } }), 0);
+  });
+});

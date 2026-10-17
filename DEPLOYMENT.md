@@ -138,7 +138,7 @@ plans or fees. It is safe to re-run: `pnpm --filter @moksha/api catalog:sync`.
 **Tests** (local only — they need the Docker Postgres and use a separate `<db>_test` database):
 `pnpm --filter @moksha/api test`
 
-## Release: website accounts, CMS, WhatsApp module, Razorpay (migration `20261017090000_platform_enhancement`)
+## Release: website accounts, CMS, WhatsApp module, Razorpay (migrations `20261017090000_platform_enhancement`, `20261017150000_account_email_login`)
 
 This release connects the public website (repo `mokshawellness_website`, hosted on Vercel) to this
 API. Do the steps in order. Nothing here deletes or rewrites existing data.
@@ -238,7 +238,7 @@ pnpm install && pnpm dev       # website :3000
 Use `STORAGE_PROVIDER=local` locally (files go to `apps/api/uploads/`, git-ignored). Restart the
 API after changing `.env` (tsx watch does not reload environment files).
 
-Tests: `pnpm --filter @moksha/api test` (99 API tests, uses a separate `<db>_test` database and a
+Tests: `pnpm --filter @moksha/api test` (103 API tests, uses a separate `<db>_test` database and a
 separate Redis database; WhatsApp, Google and Razorpay are local mocks). Browser journeys live in the
 website repo: see its `docs/TESTING.md`.
 

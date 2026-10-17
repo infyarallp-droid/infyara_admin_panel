@@ -23,7 +23,7 @@ is recorded in **Audit Log & Jobs** with who and when.
 
 ## Website Logins
 
-Everyone who creates an account or signs in on the website appears here automatically — staff do not create website logins.
+Everyone who creates an account or signs in on the website appears here automatically — staff do not create website logins. Students sign up and sign in with their **mobile number or email** (plus password) or with **Google**; every account has a mobile number, whichever way they sign up. The *Signed up with* column shows Mobile, Email or Google, and you can filter by it.
 
 - **Stats**: total accounts, accounts waiting to be linked, new this week, sign-ins this week.
 - **Recent sign-in activity** tab: every sign-in, sign-up and failed attempt, with device and time.

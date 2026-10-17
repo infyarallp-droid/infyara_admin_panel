@@ -52,7 +52,7 @@ websiteLoginsRouter.get(
       .object({
         q: z.string().trim().max(100).optional(),
         linked: z.enum(['yes', 'no']).optional(),
-        method: z.enum(['MOBILE_PASSWORD', 'GOOGLE']).optional(),
+        method: z.enum(['MOBILE_PASSWORD', 'EMAIL_PASSWORD', 'GOOGLE']).optional(),
         status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
         page: z.coerce.number().int().min(1).default(1),
         pageSize: z.coerce.number().int().min(1).max(100).default(25),

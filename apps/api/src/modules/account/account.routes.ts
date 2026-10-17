@@ -52,9 +52,16 @@ accountRouter.patch(
   '/profile',
   asyncHandler(async (req, res) => {
     const input = accountProfileSchema.parse(req.body);
+    // The email is also a sign-in name, so it must not belong to another account.
+    if (input.email) {
+      const other = await prisma.customerAccount.findUnique({ where: { email: input.email }, select: { id: true } });
+      if (other && other.id !== req.customer!.id) {
+        throw new HttpError(409, 'This email is already used by another account.', { fields: { email: 'Already used by another account' } });
+      }
+    }
     const account = await prisma.customerAccount.update({
       where: { id: req.customer!.id },
-      data: { fullName: input.fullName, email: input.email || null },
+      data: { fullName: input.fullName, email: input.email ?? null },
       include: { identities: true },
     });
     res.json({ ok: true, account: presentAccount(account) });

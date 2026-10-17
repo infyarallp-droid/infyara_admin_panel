@@ -11,6 +11,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import logoMark from '../assets/logo-mark.png';
 
 export function Button({
   variant = 'primary',
@@ -108,7 +109,7 @@ export function Loading() {
 export function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-      <img src="/logo-mark.png" alt="" className="h-10 w-auto opacity-30" />
+      <img src={logoMark} alt="" className="h-10 w-auto opacity-30" />
       <p className="font-medium text-slate-700">{title}</p>
       {children && <div className="max-w-md text-sm text-slate-500">{children}</div>}
       {action && <div className="mt-2">{action}</div>}

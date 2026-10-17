@@ -23,13 +23,20 @@ const MAX_FAILURES_PER_MOBILE = 8;
 const BCRYPT_ROUNDS = 12;
 
 const mobileTaken = () =>
-  new HttpError(409, 'An account with this mobile number already exists. Please sign in instead.', { code: 'MOBILE_TAKEN' });
+  new HttpError(409, 'An account with this mobile number already exists. Please sign in instead.', { code: 'MOBILE_TAKEN', fields: { mobile: 'Already registered' } });
+const emailTaken = () =>
+  new HttpError(409, 'An account with this email already exists. Please sign in instead.', { code: 'EMAIL_TAKEN', fields: { email: 'Already registered' } });
+
+/** Which unique field a P2002 error is about. */
+const clashOn = (err: Prisma.PrismaClientKnownRequestError) => String(err.meta?.target ?? '').includes('email') ? 'email' : 'mobile';
+
+const METHOD_LABEL: Record<string, string> = { GOOGLE: 'Google', EMAIL_PASSWORD: 'email', MOBILE_PASSWORD: 'mobile number' };
 
 function announceSignup(name: string, method: string, accountId: string) {
   notify({
     type: 'SYSTEM',
     title: `New website sign-up: ${name}`,
-    body: `Signed up with ${method === 'GOOGLE' ? 'Google' : 'mobile number'}. Link to a student record on the Website Logins page.`,
+    body: `Signed up with ${METHOD_LABEL[method] ?? method}. Link to a student record on the Website Logins page.`,
     roleTarget: 'ADMIN',
     entity: 'customer_account',
     entityId: accountId,
@@ -40,13 +47,14 @@ customerAuthRouter.get('/config', (_req, res) => {
   res.json({ ok: true, google: isGoogleConfigured() });
 });
 
-// POST /api/customer-auth/signup — mobile number + password
+// POST /api/customer-auth/signup — mobile number (always) + optional/required email + password
 customerAuthRouter.post(
   '/signup',
   limitByIp('customer-signup', 10, 60 * 60_000, 'Too many sign-ups from this connection. Please try again later.'),
   asyncHandler(async (req, res) => {
     const input = customerSignupSchema.parse(req.body);
     if (await prisma.customerAccount.findUnique({ where: { mobile: input.mobile } })) throw mobileTaken();
+    if (input.email && (await prisma.customerAccount.findUnique({ where: { email: input.email } }))) throw emailTaken();
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
 
     try {
@@ -55,9 +63,9 @@ customerAuthRouter.post(
           data: {
             fullName: input.fullName,
             mobile: input.mobile,
-            email: input.email || null,
+            email: input.email ?? null,
             passwordHash,
-            signupMethod: 'MOBILE_PASSWORD',
+            signupMethod: input.method,
           },
           include: { identities: true },
         });
@@ -67,46 +75,52 @@ customerAuthRouter.post(
             tx,
           );
         }
-        await recordLogin(req, { accountId: account.id, mobile: account.mobile, method: 'MOBILE_PASSWORD', success: true, reason: 'SIGNUP' }, tx);
+        await recordLogin(req, { accountId: account.id, mobile: account.mobile, method: input.method, success: true, reason: 'SIGNUP' }, tx);
         const session = await createSession(account.id, req, tx);
         return { account, session };
       });
-      announceSignup(result.account.fullName, 'MOBILE_PASSWORD', result.account.id);
+      announceSignup(result.account.fullName, input.method, result.account.id);
       res.status(201).json({ ok: true, token: result.session.token, expiresAt: result.session.expiresAt, account: presentAccount(result.account) });
     } catch (err) {
-      // Two simultaneous sign-ups with one number: the unique index decides.
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw mobileTaken();
+      // Two simultaneous sign-ups with one number/email: the unique index decides.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw clashOn(err) === 'email' ? emailTaken() : mobileTaken();
       throw err;
     }
   }),
 );
 
-// POST /api/customer-auth/login — mobile number + password
+// POST /api/customer-auth/login — { identifier: mobile number or email, password }
 customerAuthRouter.post(
   '/login',
   limitByIp('customer-login', 40, WINDOW_MS),
   asyncHandler(async (req, res) => {
     const input = customerLoginSchema.parse(req.body);
-    const key = `customer-login:mobile:${input.mobile}`;
+    const byEmail = input.kind === 'email';
+    const method = byEmail ? 'EMAIL_PASSWORD' : 'MOBILE_PASSWORD';
+    const key = byEmail ? `customer-login:email:${input.email}` : `customer-login:mobile:${input.mobile}`;
     if ((await hit(key, WINDOW_MS)) > MAX_FAILURES_PER_MOBILE) {
-      throw new HttpError(429, 'Too many sign-in attempts for this number. Please wait 15 minutes and try again.');
+      throw new HttpError(429, `Too many sign-in attempts for this ${byEmail ? 'email' : 'number'}. Please wait 15 minutes and try again.`);
     }
-    const account = await prisma.customerAccount.findUnique({ where: { mobile: input.mobile }, include: { identities: true } });
+    const account = await prisma.customerAccount.findUnique({
+      where: byEmail ? { email: input.email } : { mobile: input.mobile },
+      include: { identities: true },
+    });
     const ok = await bcrypt.compare(input.password, account?.passwordHash ?? DUMMY_HASH);
 
     if (!account || !ok) {
-      await recordLogin(req, { accountId: account?.id, mobile: input.mobile, method: 'MOBILE_PASSWORD', success: false, reason: 'BAD_CREDENTIALS' });
+      await recordLogin(req, { accountId: account?.id, mobile: account?.mobile ?? (byEmail ? null : input.mobile), method, success: false, reason: 'BAD_CREDENTIALS' });
       if (account && !account.passwordHash) {
         throw new HttpError(401, 'This account signs in with Google. Use "Continue with Google".', { code: 'USE_GOOGLE' });
       }
-      throw new HttpError(401, 'Mobile number or password is incorrect.');
+      // Same message whether or not the account exists.
+      throw new HttpError(401, `${byEmail ? 'Email' : 'Mobile number'} or password is incorrect.`);
     }
     if (account.status !== 'ACTIVE') {
-      await recordLogin(req, { accountId: account.id, mobile: account.mobile, method: 'MOBILE_PASSWORD', success: false, reason: 'SUSPENDED' });
+      await recordLogin(req, { accountId: account.id, mobile: account.mobile, method, success: false, reason: 'SUSPENDED' });
       throw new HttpError(403, 'This account is suspended. Please contact the studio.');
     }
     await reset(key);
-    await recordLogin(req, { accountId: account.id, mobile: account.mobile, method: 'MOBILE_PASSWORD', success: true });
+    await recordLogin(req, { accountId: account.id, mobile: account.mobile, method, success: true });
     const session = await createSession(account.id, req);
     res.json({ ok: true, token: session.token, expiresAt: session.expiresAt, account: presentAccount(account) });
   }),
@@ -164,6 +178,15 @@ customerAuthRouter.post(
         { code: 'MOBILE_TAKEN' },
       );
     }
+    // Emails are unique logins; a typed (unverified) email on another account is never merged either.
+    const googleEmail = profile.email?.toLowerCase() ?? null;
+    if (googleEmail && (await prisma.customerAccount.findUnique({ where: { email: googleEmail } }))) {
+      throw new HttpError(
+        409,
+        'An account with this email already exists. Sign in with your email or mobile number and password, then connect Google from your account settings.',
+        { code: 'EMAIL_TAKEN' },
+      );
+    }
 
     try {
       const result = await prisma.$transaction(async (tx) => {
@@ -171,7 +194,7 @@ customerAuthRouter.post(
           data: {
             fullName: input.fullName,
             mobile: input.mobile,
-            email: profile.email,
+            email: googleEmail,
             signupMethod: 'GOOGLE',
             identities: { create: { provider: 'GOOGLE', subject: profile.sub, email: profile.email } },
           },

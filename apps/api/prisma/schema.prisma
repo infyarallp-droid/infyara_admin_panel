@@ -727,6 +727,7 @@ enum AccountStatus {
 
 enum AuthMethod {
   MOBILE_PASSWORD
+  EMAIL_PASSWORD
   GOOGLE
 }
 
@@ -735,7 +736,8 @@ model CustomerAccount {
   fullName           String        @map("full_name")
   /// 10-digit Indian mobile (same normalisation as students.mobile).
   mobile             String        @unique
-  email              String?
+  /// Stored lower-case; unique so it can be used to sign in (mobile stays mandatory).
+  email              String?       @unique
   /// bcrypt hash; null for Google-only accounts until they set a password.
   passwordHash       String?       @map("password_hash")
   signupMethod       AuthMethod    @map("signup_method")

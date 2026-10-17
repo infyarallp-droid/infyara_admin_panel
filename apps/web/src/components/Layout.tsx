@@ -2,6 +2,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import NotificationBell from './NotificationBell';
+import logoMark from '../assets/logo-mark.png';
 import { Loading } from './ui';
 
 type Role = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'FRONT_DESK' | 'ACCOUNTANT' | 'TRAINER';
@@ -102,7 +103,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-3 px-5 py-5">
-        <img src="/logo-mark.png" alt="" className="h-10 w-auto" />
+        <img src={logoMark} alt="" className="h-10 w-auto" />
         <div className="leading-tight">
           <div className="whitespace-nowrap text-[13px] font-bold tracking-wide text-brand-fg">MOKSHA WELLNESS</div>
           <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Admin panel</div>
@@ -181,7 +182,7 @@ export default function Layout() {
                 <path d="M4 7h16M4 12h16M4 17h16" />
               </svg>
             </button>
-            <img src="/logo-mark.png" alt="Moksha Wellness" className="h-8 w-auto lg:hidden" />
+            <img src={logoMark} alt="Moksha Wellness" className="h-8 w-auto lg:hidden" />
           </div>
           <NotificationBell />
         </header>

@@ -18,7 +18,7 @@ interface Account {
   fullName: string;
   mobile: string;
   email: string | null;
-  signupMethod: 'MOBILE_PASSWORD' | 'GOOGLE';
+  signupMethod: 'MOBILE_PASSWORD' | 'EMAIL_PASSWORD' | 'GOOGLE';
   status: 'ACTIVE' | 'SUSPENDED';
   studentId: string | null;
   student: StudentRef | null;
@@ -33,7 +33,7 @@ interface Account {
   whatsapp?: 'OPTED_IN' | 'OPTED_OUT' | null;
 }
 
-const METHOD = { MOBILE_PASSWORD: 'Mobile', GOOGLE: 'Google' } as const;
+const METHOD = { MOBILE_PASSWORD: 'Mobile', EMAIL_PASSWORD: 'Email', GOOGLE: 'Google' } as const;
 const MANAGE_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
 
 export default function WebsiteLogins() {
@@ -109,6 +109,7 @@ export default function WebsiteLogins() {
             <Select value={method} onChange={(e) => (setMethod(e.target.value), setPage(1))} aria-label="Sign-up method">
               <option value="">Any sign-up method</option>
               <option value="MOBILE_PASSWORD">Mobile number</option>
+              <option value="EMAIL_PASSWORD">Email</option>
               <option value="GOOGLE">Google</option>
             </Select>
           </div>
@@ -144,7 +145,7 @@ export default function WebsiteLogins() {
                         </td>
                         <td className="py-3 font-mono text-xs">{a.mobile}</td>
                         <td className="py-3">
-                          <Badge tone={a.signupMethod === 'GOOGLE' ? 'blue' : 'slate'}>{METHOD[a.signupMethod]}</Badge>
+                          <Badge tone={a.signupMethod === 'GOOGLE' ? 'blue' : a.signupMethod === 'EMAIL_PASSWORD' ? 'amber' : 'slate'}>{METHOD[a.signupMethod]}</Badge>
                           {a.status === 'SUSPENDED' && (
                             <span className="ml-1">
                               <Badge tone="red">Suspended</Badge>

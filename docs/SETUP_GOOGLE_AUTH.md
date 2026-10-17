@@ -16,6 +16,7 @@ sign-in works without it.
 3. **New user** → asked for their **mobile number** (mandatory) → the account is created only then.
    If that mobile already has an account, the visitor is told to sign in with mobile + password and
    connect Google from *Account settings* — accounts are never merged on an unverified number.
+   The same applies when the Google email is already the sign-in email of another account.
 4. Every new account appears on the admin **Website Logins** page.
 
 ## 🧑 1. Google Cloud project and consent screen
