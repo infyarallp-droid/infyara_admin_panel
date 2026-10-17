@@ -410,7 +410,24 @@ cmsRouter.post(
       throw new HttpError(400, `${type.kind === 'IMAGE' ? 'Images' : 'Videos'} can be at most ${limitMb} MB. ${type.kind === 'VIDEO' ? 'For longer videos, upload to YouTube (unlisted is fine) and paste the link instead.' : ''}`);
     }
     const alt = z.string().trim().max(200).optional().parse(req.body?.alt);
-    const stored = await putPublicObject(type.kind === 'IMAGE' ? 'images' : 'videos', `upload${type.ext}`, req.file.buffer, type.mime);
+    let stored: Awaited<ReturnType<typeof putPublicObject>>;
+    try {
+      stored = await putPublicObject(type.kind === 'IMAGE' ? 'images' : 'videos', `upload${type.ext}`, req.file.buffer, type.mime);
+    } catch (err) {
+      // Storage misconfiguration is the usual cause; say exactly what to fix instead of a bare 500.
+      const reason = (err as Error).message;
+      console.error('[media] upload to storage failed:', reason);
+      const hint = /bucket not found/i.test(reason)
+        ? `Create a PUBLIC bucket named "${env.SUPABASE_PUBLIC_BUCKET}" in Supabase → Storage.`
+        : /maximum allowed size|payload too large|exceeded/i.test(reason)
+          ? 'The file is bigger than the Supabase bucket allows — raise the bucket\'s file size limit or upload a smaller file.'
+          : /mime type|not supported/i.test(reason)
+            ? `The Supabase bucket "${env.SUPABASE_PUBLIC_BUCKET}" does not allow this file type — remove its "Allowed MIME types" restriction or add ${type.mime}.`
+            : /unavailable|not set/i.test(reason)
+              ? 'Set SUPABASE_URL and SUPABASE_SERVICE_KEY on the API server.'
+              : 'Check the Supabase settings on the API server.';
+      throw new HttpError(503, `The file could not be stored: ${reason}. ${hint}`);
+    }
     const asset = await prisma.mediaAsset.create({
       data: {
         kind: type.kind,
