@@ -158,6 +158,15 @@ export const CONTENT_DEFAULTS: Record<string, Record<string, unknown>> = {
     heroTitle: 'Inside the studio',
     heroBody: 'A look at our space, our classes and our community.',
   },
+  'chatbot.settings': {
+    status: 'on',
+    botName: 'Moksha Assistant',
+    greeting:
+      'Namaste! I can help you find the right yoga or Pilates class, explain our programmes and plans, or pass your details to the studio team. What would you like to know?',
+    suggestions: ['Which class is right for a beginner?', 'Do you have online classes?', 'Tell me about teacher training', 'How do I join?'],
+    knowledge: '',
+    rules: '',
+  },
 
   // ── Suggested drafts for the policy pages. Not shown on the website until an admin
   //    reviews, edits and publishes them: they become the studio's binding policies. ──

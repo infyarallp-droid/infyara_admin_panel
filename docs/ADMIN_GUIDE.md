@@ -94,6 +94,14 @@ Written and video feedback from students.
 - **Media library** tab: every uploaded file with size and date. *Copy link*, or *Delete* (files still used on the website cannot be deleted).
 - Limits: images 8 MB (JPG, PNG, WebP, GIF, AVIF), videos 50 MB (MP4, WebM, MOV). Files are checked by their content, not their name. SVG is not accepted (it can contain scripts).
 
+## Website → AI chatbot
+
+*Website → Page Content → AI chatbot* controls the "Ask us" chat on the website: switch it on/off, its name,
+greeting, suggested questions, extra facts (timings, fees, offers…) and extra instructions. It already reads your
+programmes, plans, FAQs, team and contact details. When a visitor agrees to share their name and mobile number it
+creates a lead in **Leads** (form: *website-chatbot*, with the visitor's messages for context).
+First-time setup (OpenAI key on Render): *docs/SETUP_CHATBOT.md*.
+
 ## WhatsApp
 
 See *docs/SETUP_WHATSAPP.md* to connect it first.

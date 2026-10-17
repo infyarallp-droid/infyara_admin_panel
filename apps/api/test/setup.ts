@@ -227,4 +227,56 @@ process.env.RAZORPAY_KEY_SECRET = TEST_RZP_SECRET;
 process.env.RAZORPAY_WEBHOOK_SECRET = TEST_RZP_WEBHOOK_SECRET;
 process.env.RAZORPAY_API_BASE_URL = `http://127.0.0.1:${(rzpServer.address() as { port: number }).port}`;
 
+// ── Mock OpenAI Chat Completions (streaming) for the website chatbot ──
+// A visitor message containing "save my details" makes the mock call save_enquiry with
+// openaiMock.toolArgs; after the tool result it answers with text. Anything else gets plain text.
+export const openaiMock = {
+  requests: [] as { body: any; authorization: string | undefined }[],
+  toolArgs: { name: 'Chat Visitor', mobile: '98765 43210', interest: 'Mat Pilates', preferred_mode: 'Online', note: 'Wants a trial class' } as Record<string, string>,
+  /** Status to answer the next request with (e.g. 401 for a bad key). */
+  failWith: 0,
+  reset() {
+    this.requests.length = 0;
+    this.failWith = 0;
+  },
+};
+const openaiServer = http.createServer((req, res) => {
+  let raw = '';
+  req.on('data', (c) => (raw += c));
+  req.on('end', () => {
+    const body = JSON.parse(raw || '{}');
+    openaiMock.requests.push({ body, authorization: req.headers.authorization });
+    if (openaiMock.failWith) {
+      const status = openaiMock.failWith;
+      openaiMock.failWith = 0;
+      res.writeHead(status, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: { message: 'mock failure', type: 'test' } }));
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const chunk = (delta: object, finish: string | null = null) =>
+      res.write(`data: ${JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+    const messages = body.messages as { role: string; content: string }[];
+    const last = messages[messages.length - 1];
+    if (last.role === 'user' && /save my details/i.test(last.content) && body.tools?.length) {
+      const args = JSON.stringify(openaiMock.toolArgs);
+      chunk({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'save_enquiry', arguments: '' } }] });
+      chunk({ tool_calls: [{ index: 0, function: { arguments: args.slice(0, 20) } }] });
+      chunk({ tool_calls: [{ index: 0, function: { arguments: args.slice(20) } }] }, 'tool_calls');
+    } else {
+      const reply = last.role === 'tool' ? `Done: ${last.content}` : 'Namaste! Mat Pilates runs online.';
+      chunk({ role: 'assistant', content: '' });
+      chunk({ content: reply.slice(0, 10) });
+      chunk({ content: reply.slice(10) }, 'stop');
+    }
+    res.write(`data: ${JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 0, model: body.model, choices: [], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } })}\n\n`);
+    res.end('data: [DONE]\n\n');
+  });
+});
+await new Promise<void>((r) => openaiServer.listen(0, '127.0.0.1', r));
+openaiServer.unref();
+export const TEST_OPENAI_KEY = 'sk-test-openai-DO-NOT-LOG';
+process.env.OPENAI_API_KEY = TEST_OPENAI_KEY;
+process.env.OPENAI_BASE_URL = `http://127.0.0.1:${(openaiServer.address() as { port: number }).port}`;
+process.env.CHATBOT_VISITOR_DAILY_LIMIT = '40';
+
 export const TEST_DB = testDb;

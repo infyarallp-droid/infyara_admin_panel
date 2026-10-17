@@ -380,7 +380,7 @@ export const safeHref = z
   .max(500)
   .refine(isSafeHref, 'Use a page path such as /contact, or a full https:// link');
 
-export type ContentFieldType = 'text' | 'textarea' | 'href' | 'image' | 'lines' | 'list';
+export type ContentFieldType = 'text' | 'textarea' | 'href' | 'image' | 'lines' | 'list' | 'choice';
 
 export interface ContentField {
   name: string;
@@ -392,6 +392,8 @@ export interface ContentField {
   /** For type "list": the fields of each item. */
   fields?: ContentField[];
   maxItems?: number;
+  /** For type "choice": the allowed values (the first is the default) and their labels. */
+  options?: { value: string; label: string }[];
 }
 
 export interface ContentBlockDef {
@@ -570,6 +572,32 @@ export const CONTENT_BLOCKS: ContentBlockDef[] = [
     page: '/gallery',
     fields: [t('heroEyebrow', 'Small heading', 80), t('heroTitle', 'Headline', 120, { required: true }), ta('heroBody', 'Introduction', 600)],
   },
+  {
+    key: 'chatbot.settings',
+    label: 'AI chatbot',
+    page: '/',
+    fields: [
+      {
+        name: 'status',
+        label: 'Chatbot on the website',
+        type: 'choice',
+        options: [
+          { value: 'on', label: 'On — show the chat button' },
+          { value: 'off', label: 'Off — hide it' },
+        ],
+        help: 'Works only once OPENAI_API_KEY is set on the API server.',
+      },
+      t('botName', 'Assistant name', 40, { help: 'Shown at the top of the chat window.' }),
+      ta('greeting', 'First message', 400, { help: 'What the assistant says when a visitor opens the chat.' }),
+      { name: 'suggestions', label: 'Suggested questions', type: 'lines', max: 80, maxItems: 6, help: 'One per row. Shown as buttons the visitor can tap.' },
+      ta('knowledge', 'Extra facts for the assistant', 6000, {
+        help: 'Anything not already on the website: batch timings, fees, offers, what to bring, parking, languages spoken… The assistant also reads your programmes, plans, FAQs, team and contact details automatically.',
+      }),
+      ta('rules', 'Extra instructions', 2000, {
+        help: 'How the assistant should behave, e.g. "Always suggest a trial class" or "Do not quote fees for teacher training".',
+      }),
+    ],
+  },
   // Policy pages: shown on the website (and linked in the footer) only once published.
   // Razorpay's website review expects all three.
   ...(
@@ -620,6 +648,10 @@ function fieldSchema(f: ContentField): z.ZodTypeAny {
       return safeHref.optional().default('');
     case 'image':
       return mediaUrlSchema.optional().default('');
+    case 'choice': {
+      const values = (f.options ?? []).map((o) => o.value) as [string, ...string[]];
+      return z.enum(values).optional().default(values[0]);
+    }
     case 'lines':
       return z
         .array(z.string().trim().max(f.max ?? 800))

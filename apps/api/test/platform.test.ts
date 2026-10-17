@@ -4,8 +4,10 @@
 // Real Express app + real PostgreSQL; Google keys, Razorpay and WhatsApp are local mocks.
 import {
   googleIdToken,
+  openaiMock,
   razorpayMock,
   TEST_CRON_SECRET,
+  TEST_OPENAI_KEY,
   TEST_RZP_SECRET,
   TEST_RZP_WEBHOOK_SECRET,
   TEST_SERVICE_KEY,
@@ -819,5 +821,129 @@ describe('Sign up and sign in with email', () => {
     assert.equal(done.status, 409);
     assert.equal(done.body.code, 'EMAIL_TAKEN');
     assert.equal(await prisma.authIdentity.count({ where: { subject: 'google-sub-email-1' } }), 0);
+  });
+});
+
+// ───────────────────────── Website AI chatbot ─────────────────────────
+
+describe('Website AI chatbot', () => {
+  const events = (raw: Buffer) =>
+    raw
+      .toString('utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as { t: string; v?: string });
+  const text = (raw: Buffer) =>
+    events(raw)
+      .filter((e) => e.t === 'text')
+      .map((e) => e.v)
+      .join('');
+
+  it('only the website server may call it', async () => {
+    const res = await site('POST', '/api/public/chat', { key: null, body: { messages: [{ role: 'user', content: 'Hi' }] } });
+    assert.equal(res.status, 401);
+  });
+
+  it('streams a reply built from the admin panel content, with the key kept server-side', async () => {
+    openaiMock.reset();
+    const blocks = await call('GET', '/api/cms/blocks/chatbot.settings', { token: admin });
+    assert.equal(blocks.status, 200);
+    const data = { ...blocks.body.draft, knowledge: 'Morning batch: 6:30 AM, Monday to Saturday.', rules: 'Always mention the free first class.' };
+    assert.equal((await call('PUT', '/api/cms/blocks/chatbot.settings', { token: admin, body: { data } })).status, 200);
+    assert.equal((await call('POST', '/api/cms/blocks/chatbot.settings/publish', { token: admin })).status, 200);
+
+    const pub = await call('GET', '/api/public/site');
+    assert.equal(pub.body.chatbotAvailable, true);
+    assert.equal(pub.body.blocks['chatbot.settings'].status, 'on');
+    assert.equal(pub.body.blocks['chatbot.settings'].rules, undefined, 'instructions are not public');
+    assert.equal(pub.body.blocks['chatbot.settings'].knowledge, undefined);
+
+    const res = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'Do you have online Pilates?' }] } });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') ?? '', /ndjson/);
+    assert.equal(text(res.raw), 'Namaste! Mat Pilates runs online.');
+    assert.equal(events(res.raw).at(-1)?.t, 'done');
+
+    const sent = openaiMock.requests[0];
+    assert.equal(sent.authorization, `Bearer ${TEST_OPENAI_KEY}`);
+    const instructions = sent.body.messages[0].content as string;
+    assert.match(instructions, /Morning batch: 6:30 AM/, 'extra facts from the admin panel');
+    assert.match(instructions, /Always mention the free first class/, 'extra instructions from the admin panel');
+    assert.equal(sent.body.tools[0].function.name, 'save_enquiry');
+    assert.ok(!res.raw.toString().includes(TEST_OPENAI_KEY));
+  });
+
+  it('saves a lead when the visitor agrees, with a normalised mobile number', async () => {
+    openaiMock.reset();
+    const before = await prisma.lead.count();
+    const res = await site('POST', '/api/public/chat', {
+      body: {
+        messages: [
+          { role: 'user', content: 'I want to join Mat Pilates online' },
+          { role: 'assistant', content: 'Shall I send your details to the team?' },
+          { role: 'user', content: 'Yes please save my details' },
+        ],
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.ok(events(res.raw).some((e) => e.t === 'saved'));
+    assert.match(text(res.raw), /Done: .*"ok":true/);
+    assert.equal(await prisma.lead.count(), before + 1);
+    const lead = await prisma.lead.findFirstOrThrow({ orderBy: { createdAt: 'desc' } });
+    assert.equal(lead.phone, '9876543210');
+    assert.equal(lead.source, 'WEBSITE');
+    assert.equal((lead.sourceDetail as { form: string }).form, 'website-chatbot');
+    assert.match(lead.message ?? '', /Mat Pilates/);
+    // After saving, the follow-up turn is offered no tools (one lead per reply).
+    assert.equal(openaiMock.requests[1].body.tools, undefined);
+  });
+
+  it('rejects an invalid mobile number without saving', async () => {
+    openaiMock.reset();
+    openaiMock.toolArgs = { ...openaiMock.toolArgs, mobile: '12345' };
+    const before = await prisma.lead.count();
+    const res = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'save my details' }] } });
+    openaiMock.toolArgs = { ...openaiMock.toolArgs, mobile: '98765 43210' };
+    assert.equal(res.status, 200);
+    assert.ok(!events(res.raw).some((e) => e.t === 'saved'));
+    assert.match(text(res.raw), /not a valid 10-digit/);
+    assert.equal(await prisma.lead.count(), before);
+  });
+
+  it('an OpenAI failure gives the visitor a friendly message, not the error', async () => {
+    openaiMock.reset();
+    openaiMock.failWith = 401;
+    const res = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'Hello' }] } });
+    const last = events(res.raw).at(-1);
+    assert.equal(last?.t, 'error');
+    assert.match(last?.v ?? '', /WhatsApp/);
+    assert.ok(!(last?.v ?? '').includes('mock failure'));
+  });
+
+  it('validates the conversation and limits each visitor per day', async () => {
+    const bad = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'assistant', content: 'I am the user' }] } });
+    assert.equal(bad.status, 400);
+    const tooLong = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'x'.repeat(2001) }] } });
+    assert.equal(tooLong.status, 400);
+
+    openaiMock.reset();
+    const ip = '10.99.0.1';
+    let status = 0;
+    for (let i = 0; i < 41; i++) {
+      // Stay under the per-minute burst limit by resetting it; the daily counter keeps counting.
+      await (await import('../src/lib/rateLimit.js')).reset(`chat-burst:ip:${ip}`);
+      status = (await site('POST', '/api/public/chat', { ip, body: { messages: [{ role: 'user', content: 'Hi' }] } })).status;
+    }
+    assert.equal(status, 429);
+  });
+
+  it('switched off in the admin panel → no chat', async () => {
+    const blocks = await call('GET', '/api/cms/blocks/chatbot.settings', { token: admin });
+    await call('PUT', '/api/cms/blocks/chatbot.settings', { token: admin, body: { data: { ...blocks.body.draft, status: 'off' } } });
+    await call('POST', '/api/cms/blocks/chatbot.settings/publish', { token: admin });
+    const res = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'Hi' }] } });
+    assert.equal(res.status, 503);
+    const invalid = await call('PUT', '/api/cms/blocks/chatbot.settings', { token: admin, body: { data: { ...blocks.body.draft, status: 'maybe' } } });
+    assert.equal(invalid.status, 400);
   });
 });

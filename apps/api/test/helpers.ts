@@ -53,7 +53,7 @@ export async function call<T = any>(
   const res = await fetch(BASE + path, { method, headers, body });
   const raw = Buffer.from(await res.arrayBuffer());
   let parsed: unknown = null;
-  if ((res.headers.get('content-type') ?? '').includes('json')) parsed = JSON.parse(raw.toString('utf8'));
+  if ((res.headers.get('content-type') ?? '').includes('application/json')) parsed = JSON.parse(raw.toString('utf8'));
   return { status: res.status, body: parsed as T, raw, headers: res.headers };
 }
 

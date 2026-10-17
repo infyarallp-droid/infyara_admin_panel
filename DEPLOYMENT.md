@@ -169,6 +169,7 @@ payment orders, gateway payments, refunds, job markers) and new **nullable/defau
 | `GOOGLE_CLIENT_ID` | see docs/SETUP_GOOGLE_AUTH.md (optional) |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | see docs/SETUP_RAZORPAY.md (test keys first) |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` (+ existing WhatsApp vars) | see docs/SETUP_WHATSAPP.md |
+| `OPENAI_API_KEY`, `OPENAI_MODEL`, `CHATBOT_DAILY_LIMIT`, `CHATBOT_VISITOR_DAILY_LIMIT` | website AI chatbot — see docs/SETUP_CHATBOT.md |
 | `WEB_ORIGIN` | admin panel URL(s), comma-separated |
 
 The build command in `deploy/render.yaml` now also runs `cms:seed` — update the service's

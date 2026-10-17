@@ -7,7 +7,14 @@ import { env } from './env.js';
 
 let pending: NodeJS.Timeout | null = null;
 
+// In-process caches of website content (e.g. the chatbot's) register here to be dropped on publish.
+const contentListeners = new Set<() => void>();
+export function onContentChange(listener: () => void): void {
+  contentListeners.add(listener);
+}
+
 export function revalidateWebsite(reason: string): void {
+  for (const listener of contentListeners) listener();
   if (!env.WEBSITE_URL || !env.WEBSITE_REVALIDATE_SECRET) return;
   // Several edits in a row trigger a single refresh.
   if (pending) clearTimeout(pending);

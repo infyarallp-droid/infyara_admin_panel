@@ -26,6 +26,7 @@ import { accountRouter } from './modules/account/account.routes.js';
 import { websiteLoginsRouter } from './modules/website-logins/websiteLogins.routes.js';
 import { cmsRouter } from './modules/cms/cms.routes.js';
 import { publicContentRouter } from './modules/cms/public.routes.js';
+import { chatbotRouter } from './modules/chatbot/chatbot.routes.js';
 import { whatsappAdminRouter } from './modules/whatsapp/whatsapp.routes.js';
 import { paymentsRouter } from './modules/payments/payments.routes.js';
 import { jobsRouter, systemRouter } from './modules/system/system.routes.js';
@@ -85,6 +86,7 @@ app.use('/webhooks/razorpay', razorpayRouter);
 app.use('/api/customer-auth', customerAuthRouter);
 app.use('/api/account', accountRouter);
 // Public website content (read-only)
+app.use('/api/public/chat', chatbotRouter);
 app.use('/api/public', publicContentRouter);
 // Admin modules
 app.use('/api/website-logins', websiteLoginsRouter);

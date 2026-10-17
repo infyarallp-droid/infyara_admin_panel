@@ -4,7 +4,7 @@ import type { ContentBlockDef, ContentField } from '@moksha/shared';
 import { api, apiError } from '../../lib/api';
 import { fmtDateTime } from '../../lib/format';
 import MediaPicker from '../../components/MediaPicker';
-import { Badge, Button, Callout, Card, Field, Input, Loading, PageHeader, Textarea, useFeedback } from '../../components/ui';
+import { Badge, Button, Callout, Card, Field, Input, Loading, PageHeader, Select, Textarea, useFeedback } from '../../components/ui';
 import { usePreview } from './shared';
 
 type Data = Record<string, unknown>;
@@ -193,7 +193,7 @@ function FieldEditor({ field, value, onChange }: { field: ContentField; value: u
     case 'textarea':
       return (
         <Field label={field.label} hint={field.help ?? count}>
-          <Textarea value={str} maxLength={field.max} rows={3} onChange={(e) => onChange(e.target.value)} />
+          <Textarea value={str} maxLength={field.max} rows={(field.max ?? 0) > 1000 ? 8 : 3} onChange={(e) => onChange(e.target.value)} />
         </Field>
       );
     case 'lines': {
@@ -204,6 +204,18 @@ function FieldEditor({ field, value, onChange }: { field: ContentField; value: u
         </Field>
       );
     }
+    case 'choice':
+      return (
+        <Field label={field.label} hint={field.help}>
+          <Select value={str || field.options?.[0]?.value} onChange={(e) => onChange(e.target.value)}>
+            {(field.options ?? []).map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      );
     case 'list':
       return <ListEditor field={field} value={Array.isArray(value) ? (value as Data[]) : []} onChange={onChange} />;
     case 'href':

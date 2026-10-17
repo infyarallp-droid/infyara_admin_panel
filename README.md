@@ -114,6 +114,7 @@ The admin API is also the backend of the public website (`mokshawellness_website
 | Website content (CMS): page text, programmes, team, testimonials, FAQs, announcements, gallery, media, policy pages | **Website → …** | `/api/cms`, public `/api/public/site` | [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md) |
 | WhatsApp: opt-in ledger, templates, send/schedule, reminder rules, history | **WhatsApp** | `/api/whatsapp`, `/webhooks/whatsapp` | [docs/SETUP_WHATSAPP.md](docs/SETUP_WHATSAPP.md) |
 | Razorpay: invoice payments, online plan purchase, refunds | **Online Payments** | `/api/account/payments/*`, `/api/payments`, `/webhooks/razorpay` | [docs/SETUP_RAZORPAY.md](docs/SETUP_RAZORPAY.md) |
+| Website AI chatbot (OpenAI): answers from the website content, saves leads | **Website → Page Content → AI chatbot** | `/api/public/chat` | [docs/SETUP_CHATBOT.md](docs/SETUP_CHATBOT.md) |
 | Job runner (scheduled messages, reminders, payment recovery) | **Audit Log & Jobs** | `POST /internal/jobs/tick` | [DEPLOYMENT.md](DEPLOYMENT.md) |
 
 Key design rules:

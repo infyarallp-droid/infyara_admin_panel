@@ -83,6 +83,12 @@ services:
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
 
+      # ── Website AI chatbot (docs/SETUP_CHATBOT.md) ──
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+
       # ── Scheduled jobs ──
       # Secret for POST /internal/jobs/tick (cron-job.org or the optional cron service below).
       - key: CRON_SECRET
