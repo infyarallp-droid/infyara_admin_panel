@@ -2,70 +2,106 @@ services:
   - type: web
     name: moksha-api
     runtime: node
+    # free sleeps after 15 min idle (first request then takes ~50 s). "starter" is recommended
+    # once students sign in and pay online — see DEPLOYMENT.md.
     plan: free
     rootDir: .
-    # migrate deploy = additive schema migrations; catalog:sync = idempotent course catalogue (creates missing courses only, never fees/plans)
-    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter @moksha/api exec prisma migrate deploy && pnpm --filter @moksha/api catalog:sync && pnpm --filter @moksha/api build
+    # migrate deploy = additive schema migrations; catalog:sync = idempotent course catalogue;
+    # cms:seed = copies the website's programme text/FAQs into empty CMS fields (never overwrites edits).
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter @moksha/api exec prisma migrate deploy && pnpm --filter @moksha/api catalog:sync && pnpm --filter @moksha/api cms:seed && pnpm --filter @moksha/api build
     startCommand: pnpm --filter @moksha/api start
     healthCheckPath: /health
 
     envVars:
       - key: NODE_ENV
         value: production
-
       - key: PORT
         value: "4000"
-
       - key: API_PUBLIC_URL
         sync: false
-
+      # Admin panel URL(s), comma-separated (CORS).
       - key: WEB_ORIGIN
         sync: false
 
       - key: DATABASE_URL
         sync: false
-
       - key: REDIS_URL
         sync: false
 
       - key: JWT_SECRET
         generateValue: true
-
       - key: JWT_REFRESH_SECRET
         generateValue: true
-
       - key: ENCRYPTION_KEY
         sync: false
 
       - key: STORAGE_PROVIDER
         value: supabase
-
       - key: SUPABASE_URL
         sync: false
-
       - key: SUPABASE_SERVICE_KEY
         sync: false
-
       - key: SUPABASE_BUCKET
         value: moksha-uploads
+      - key: SUPABASE_PUBLIC_BUCKET
+        value: moksha-public
 
       - key: PUBLIC_LEADS_API_KEY
         generateValue: true
-
       - key: GOOGLE_FORM_SHARED_SECRET
         generateValue: true
 
+      # ── Website ↔ API (the same values go into the website's Vercel settings) ──
+      - key: WEBSITE_SERVICE_KEY
+        sync: false
+      - key: WEBSITE_URL
+        sync: false
+      - key: WEBSITE_REVALIDATE_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+      # ── WhatsApp ──
       - key: WHATSAPP_VERIFY_TOKEN
         sync: false
-
       - key: WHATSAPP_APP_SECRET
         sync: false
-
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
-
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false
-
+      - key: WHATSAPP_BUSINESS_ACCOUNT_ID
+        sync: false
       - key: WHATSAPP_RENEWAL_TEMPLATE
         value: renewal_reminder
+
+      # ── Razorpay (test keys first: rzp_test_…) ──
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+
+      # ── Scheduled jobs ──
+      # Secret for POST /internal/jobs/tick (cron-job.org or the optional cron service below).
+      - key: CRON_SECRET
+        generateValue: true
+      # On a paid always-on instance, set e.g. 60 to also run the job runner inside the API.
+      - key: INTERNAL_SCHEDULER_SECONDS
+        value: "0"
+
+  # Optional (paid, ~US$1+/month): Render's own scheduler instead of cron-job.org.
+  # Uncomment, then copy CRON_SECRET and API_PUBLIC_URL from the web service.
+  # - type: cron
+  #   name: moksha-jobs
+  #   runtime: node
+  #   schedule: "*/5 * * * *"
+  #   buildCommand: echo "no build needed"
+  #   startCommand: >-
+  #     curl -fsS -X POST "$API_PUBLIC_URL/internal/jobs/tick" -H "x-cron-secret: $CRON_SECRET" --max-time 120
+  #   envVars:
+  #     - key: API_PUBLIC_URL
+  #       sync: false
+  #     - key: CRON_SECRET
+  #       sync: false

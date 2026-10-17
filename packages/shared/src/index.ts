@@ -536,7 +536,37 @@ export const CONTENT_BLOCKS: ContentBlockDef[] = [
     page: '/gallery',
     fields: [t('heroEyebrow', 'Small heading', 80), t('heroTitle', 'Headline', 120, { required: true }), ta('heroBody', 'Introduction', 600)],
   },
+  // Policy pages: shown on the website (and linked in the footer) only once published.
+  // Razorpay's website review expects all three.
+  ...(
+    [
+      ['legal.privacy', 'Privacy policy', '/privacy'],
+      ['legal.terms', 'Terms & conditions', '/terms'],
+      ['legal.refunds', 'Cancellation & refund policy', '/refund-policy'],
+    ] as const
+  ).map(
+    ([key, label, page]): ContentBlockDef => ({
+      key,
+      label,
+      page,
+      fields: [
+        t('title', 'Page title', 120, { required: true }),
+        t('updated', 'Last updated', 40, { help: 'e.g. 17 October 2026' }),
+        ta('intro', 'Introduction', 1500),
+        {
+          name: 'sections',
+          label: 'Sections',
+          type: 'list',
+          maxItems: 25,
+          fields: [t('title', 'Heading', 120, { required: true }), ta('text', 'Text', 4000, { help: 'Separate paragraphs with a blank line.' })],
+        },
+      ],
+    }),
+  ),
 ];
+
+/** Policy blocks: never shown from built-in defaults — only after an admin publishes them. */
+export const LEGAL_BLOCK_KEYS = ['legal.privacy', 'legal.terms', 'legal.refunds'];
 
 export const CONTENT_BLOCK_KEYS = CONTENT_BLOCKS.map((b) => b.key);
 

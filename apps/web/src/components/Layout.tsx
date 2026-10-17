@@ -104,7 +104,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex items-center gap-3 px-5 py-5">
         <img src="/logo-mark.png" alt="" className="h-10 w-auto" />
         <div className="leading-tight">
-          <div className="text-[15px] font-bold tracking-wide text-brand-fg">MOKSHA WELLNESS</div>
+          <div className="whitespace-nowrap text-[13px] font-bold tracking-wide text-brand-fg">MOKSHA WELLNESS</div>
           <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Admin panel</div>
         </div>
       </div>

@@ -135,6 +135,14 @@ function BlockEditor({ blockKey }: { blockKey: string }) {
         </div>
       </div>
 
+      {def.key.startsWith('legal.') && (
+        <Callout tone={isLive ? 'blue' : 'amber'} title={isLive ? 'Published policy' : 'Suggested draft — not on the website yet'}>
+          {isLive
+            ? 'This is your published policy. Update the "Last updated" date whenever you change it.'
+            : 'Read it carefully and change anything that does not match how the studio works (ideally with a professional). Once published it becomes your policy, and the page is linked from the website footer. Razorpay checks for these pages during KYC.'}
+        </Callout>
+      )}
+
       <div className="space-y-4">
         {def.fields.map((f) => (
           <FieldEditor key={f.name} field={f} value={form[f.name]} onChange={(v) => set(f.name, v)} />

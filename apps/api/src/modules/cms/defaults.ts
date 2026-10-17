@@ -157,6 +157,99 @@ export const CONTENT_DEFAULTS: Record<string, Record<string, unknown>> = {
     heroTitle: 'Inside the studio',
     heroBody: 'A look at our space, our classes and our community.',
   },
+
+  // ── Suggested drafts for the policy pages. Not shown on the website until an admin
+  //    reviews, edits and publishes them: they become the studio's binding policies. ──
+  'legal.privacy': {
+    title: 'Privacy policy',
+    updated: '',
+    intro:
+      'This policy explains what personal information Moksha Wellness collects, why we collect it, and how we look after it. It applies to our website, our studio and our online classes.',
+    sections: [
+      {
+        title: 'What we collect',
+        text: 'When you enquire or create an account: your name, mobile number and (optionally) email address. If you sign in with Google, we receive your name and email address from Google.\n\nWhen you join a class: the details on your admission and consent form, including the health information you choose to declare so that your teacher can guide you safely.\n\nWhen you pay online: the payment is processed by Razorpay. We receive confirmation of the payment and its reference number. We never see or store your card, UPI PIN or bank login details.',
+      },
+      {
+        title: 'How we use it',
+        text: 'To reply to your enquiries, manage your enrolment, timings, renewals and invoices, issue receipts, keep you safe in class, and meet our legal and accounting obligations.',
+      },
+      {
+        title: 'WhatsApp messages',
+        text: 'We send WhatsApp messages (class reminders, payment updates and studio announcements) only if you have agreed to receive them. You can stop them at any time by replying STOP, or from your account settings on our website.',
+      },
+      {
+        title: 'Who we share it with',
+        text: 'We do not sell your information. We share it only with service providers who help us run the studio — such as our payment gateway (Razorpay), WhatsApp (Meta), and our secure hosting and database providers — and only as needed for them to provide their service, or when the law requires it.',
+      },
+      {
+        title: 'How long we keep it',
+        text: 'We keep your records for as long as you are a student and afterwards for as long as needed for accounting, tax and legal purposes. Enquiries that do not lead to enrolment are deleted when they are no longer needed.',
+      },
+      {
+        title: 'Your choices',
+        text: 'You can ask us for a copy of your information, ask us to correct it, or ask us to delete it where we are not required to keep it. Contact us using the details on our Contact page.',
+      },
+    ],
+  },
+  'legal.terms': {
+    title: 'Terms & conditions',
+    updated: '',
+    intro: 'These terms apply when you enquire, create an account, enrol in a class or training programme, or pay on the Moksha Wellness website.',
+    sections: [
+      {
+        title: 'Your account',
+        text: 'Keep your password private. You are responsible for activity on your account. Tell us straight away if you think someone else has used it.',
+      },
+      {
+        title: 'Health and safety',
+        text: 'Yoga and Pilates are physical activities. Before you begin, you complete a health declaration and consent form. Please tell your teacher about any injury, condition or pregnancy, practise within your own limits, and consult your doctor if you are unsure whether a practice is right for you. Our classes are not a substitute for medical advice.',
+      },
+      {
+        title: 'Enrolment and plans',
+        text: 'A plan entitles you to attend the class it covers for the period shown on your invoice. Plans are personal and cannot be transferred. Class timings may occasionally change; we will tell you in advance.',
+      },
+      {
+        title: 'Payments',
+        text: 'Fees are shown in Indian Rupees. Online payments are processed securely by Razorpay. Your enrolment is confirmed once the payment is successful, and a receipt is available in your account.',
+      },
+      {
+        title: 'Studio conduct',
+        text: 'Arrive on time, keep phones silent, and treat teachers and fellow students with respect. We may refuse or end a booking where conduct puts others at risk.',
+      },
+      {
+        title: 'Changes to these terms',
+        text: 'We may update these terms from time to time. The version on this page applies from the date shown above.',
+      },
+    ],
+  },
+  'legal.refunds': {
+    title: 'Cancellation & refund policy',
+    updated: '',
+    intro: 'This policy explains when fees paid to Moksha Wellness can be cancelled or refunded.',
+    sections: [
+      {
+        title: 'Cancellation by you',
+        text: 'If you would like to cancel a plan before it starts, contact us before the start date and we will refund the fee in full. Once a plan or batch has started, fees are not refundable, but we may, at our discretion, move the remaining period to a later batch.',
+      },
+      {
+        title: 'Cancellation by the studio',
+        text: 'If we cancel a class, batch or programme, you will receive a full refund for the part you have not received, or you may choose to move to another batch.',
+      },
+      {
+        title: 'Teacher training programmes',
+        text: 'Teacher training fees and any non-refundable deposit are described in the programme details shared when you enrol.',
+      },
+      {
+        title: 'How refunds are paid',
+        text: 'Approved refunds of online payments are returned to the original payment method (card, UPI or bank account) through Razorpay, normally within 5–7 working days of approval. Cash payments are refunded at the studio or by bank transfer.',
+      },
+      {
+        title: 'How to ask for a refund',
+        text: 'Contact us with your name, mobile number and the invoice or receipt number. We reply within 3 working days.',
+      },
+    ],
+  },
 };
 
 /** The original home-page FAQs, seeded as published FAQs when the FAQ list is empty. */
