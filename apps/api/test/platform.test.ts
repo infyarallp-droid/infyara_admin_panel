@@ -4,10 +4,10 @@
 // Real Express app + real PostgreSQL; Google keys, Razorpay and WhatsApp are local mocks.
 import {
   googleIdToken,
-  openaiMock,
+  claudeMock,
   razorpayMock,
   TEST_CRON_SECRET,
-  TEST_OPENAI_KEY,
+  TEST_ANTHROPIC_KEY,
   TEST_RZP_SECRET,
   TEST_RZP_WEBHOOK_SECRET,
   TEST_SERVICE_KEY,
@@ -845,7 +845,7 @@ describe('Website AI chatbot', () => {
   });
 
   it('streams a reply built from the admin panel content, with the key kept server-side', async () => {
-    openaiMock.reset();
+    claudeMock.reset();
     const blocks = await call('GET', '/api/cms/blocks/chatbot.settings', { token: admin });
     assert.equal(blocks.status, 200);
     const data = { ...blocks.body.draft, knowledge: 'Morning batch: 6:30 AM, Monday to Saturday.', rules: 'Always mention the free first class.' };
@@ -864,17 +864,23 @@ describe('Website AI chatbot', () => {
     assert.equal(text(res.raw), 'Namaste! Mat Pilates runs online.');
     assert.equal(events(res.raw).at(-1)?.t, 'done');
 
-    const sent = openaiMock.requests[0];
-    assert.equal(sent.authorization, `Bearer ${TEST_OPENAI_KEY}`);
-    const instructions = sent.body.messages[0].content as string;
+    const sent = claudeMock.requests[0];
+    assert.equal(sent.headers['x-api-key'], TEST_ANTHROPIC_KEY);
+    assert.equal(sent.body.model, 'claude-opus-5-5');
+    assert.equal(sent.body.fallbacks, 'default', 'declined requests fall back server-side');
+    assert.match(String(sent.headers['anthropic-beta']), /server-side-fallback-2026-07-01/);
+    assert.deepEqual(sent.body.output_config, { effort: 'low' });
+    assert.deepEqual(sent.body.system[0].cache_control, { type: 'ephemeral' }, 'instructions are prompt-cached');
+    assert.match(sent.body.system[1].text, /Current date and time/, 'the clock is after the cache breakpoint');
+    const instructions = sent.body.system[0].text as string;
     assert.match(instructions, /Morning batch: 6:30 AM/, 'extra facts from the admin panel');
     assert.match(instructions, /Always mention the free first class/, 'extra instructions from the admin panel');
-    assert.equal(sent.body.tools[0].function.name, 'save_enquiry');
-    assert.ok(!res.raw.toString().includes(TEST_OPENAI_KEY));
+    assert.equal(sent.body.tools[0].name, 'save_enquiry');
+    assert.ok(!res.raw.toString().includes(TEST_ANTHROPIC_KEY));
   });
 
   it('saves a lead when the visitor agrees, with a normalised mobile number', async () => {
-    openaiMock.reset();
+    claudeMock.reset();
     const before = await prisma.lead.count();
     const res = await site('POST', '/api/public/chat', {
       body: {
@@ -894,30 +900,42 @@ describe('Website AI chatbot', () => {
     assert.equal(lead.source, 'WEBSITE');
     assert.equal((lead.sourceDetail as { form: string }).form, 'website-chatbot');
     assert.match(lead.message ?? '', /Mat Pilates/);
-    // After saving, the follow-up turn is offered no tools (one lead per reply).
-    assert.equal(openaiMock.requests[1].body.tools, undefined);
+    // The follow-up turn carries the assistant's tool call and the tool result.
+    const followUp = claudeMock.requests[1].body.messages as { role: string; content: any }[];
+    assert.equal(followUp.at(-2)?.content[0].type, 'tool_use');
+    assert.equal(followUp.at(-1)?.content[0].type, 'tool_result');
   });
 
   it('rejects an invalid mobile number without saving', async () => {
-    openaiMock.reset();
-    openaiMock.toolArgs = { ...openaiMock.toolArgs, mobile: '12345' };
+    claudeMock.reset();
+    claudeMock.toolArgs = { ...claudeMock.toolArgs, mobile: '12345' };
     const before = await prisma.lead.count();
     const res = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'save my details' }] } });
-    openaiMock.toolArgs = { ...openaiMock.toolArgs, mobile: '98765 43210' };
+    claudeMock.toolArgs = { ...claudeMock.toolArgs, mobile: '98765 43210' };
     assert.equal(res.status, 200);
     assert.ok(!events(res.raw).some((e) => e.t === 'saved'));
     assert.match(text(res.raw), /not a valid 10-digit/);
     assert.equal(await prisma.lead.count(), before);
   });
 
-  it('an OpenAI failure gives the visitor a friendly message, not the error', async () => {
-    openaiMock.reset();
-    openaiMock.failWith = 401;
+  it('an Anthropic API failure gives the visitor a friendly message, not the error', async () => {
+    claudeMock.reset();
+    claudeMock.failWith = 401;
     const res = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'Hello' }] } });
     const last = events(res.raw).at(-1);
     assert.equal(last?.t, 'error');
     assert.match(last?.v ?? '', /WhatsApp/);
     assert.ok(!(last?.v ?? '').includes('mock failure'));
+  });
+
+  it('a declined request shows a polite message', async () => {
+    claudeMock.reset();
+    claudeMock.refuseNext = true;
+    const res = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'Something off-topic' }] } });
+    assert.equal(res.status, 200);
+    const last = events(res.raw).filter((e) => e.t !== 'done').at(-1);
+    assert.equal(last?.t, 'error');
+    assert.match(last?.v ?? '', /WhatsApp/);
   });
 
   it('validates the conversation and limits each visitor per day', async () => {
@@ -926,7 +944,7 @@ describe('Website AI chatbot', () => {
     const tooLong = await site('POST', '/api/public/chat', { body: { messages: [{ role: 'user', content: 'x'.repeat(2001) }] } });
     assert.equal(tooLong.status, 400);
 
-    openaiMock.reset();
+    claudeMock.reset();
     const ip = '10.99.0.1';
     let status = 0;
     for (let i = 0; i < 41; i++) {

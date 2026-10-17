@@ -989,6 +989,31 @@ model GalleryItem {
   @@map("gallery_items")
 }
 
+/// A blog article on the website (/blog/<slug>). The body is Markdown.
+model BlogPost {
+  id             String        @id @default(uuid()) @db.Uuid
+  title          String
+  slug           String        @unique
+  excerpt        String
+  body           String
+  coverImageUrl  String?       @map("cover_image_url")
+  coverAlt       String?       @map("cover_alt")
+  authorName     String?       @map("author_name")
+  tags           String[]      @default([])
+  seoTitle       String?       @map("seo_title")
+  seoDescription String?       @map("seo_description")
+  isFeatured     Boolean       @default(false) @map("is_featured")
+  /// Shown as the article date and used for ordering (newest first). Set on first publish if empty.
+  publishedAt    DateTime?     @map("published_at")
+  displayOrder   Int           @default(0) @map("display_order")
+  status         PublishStatus @default(DRAFT)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@index([status, publishedAt])
+  @@map("blog_posts")
+}
+
 // ───────────────────────── WhatsApp: consent, templates, rules, campaigns ─────────────────────────
 
 enum ConsentState {

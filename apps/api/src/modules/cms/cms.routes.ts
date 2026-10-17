@@ -216,13 +216,36 @@ const gallerySchema = z.object({
   status: status.default('PUBLISHED'),
 });
 
-const slugify = (s: string) =>
+const slugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use lowercase letters, numbers and dashes')
+  .max(80);
+
+const blogSchema = z.object({
+  title: z.string().trim().min(3, 'Add a title').max(160),
+  slug: slugSchema.optional().or(z.literal('')).transform((v) => v || undefined),
+  excerpt: z.string().trim().min(10, 'Write a one or two sentence summary').max(400),
+  body: z.string().trim().min(20, 'Write the article').max(50_000),
+  coverImageUrl: optUrl,
+  coverAlt: optText(200),
+  authorName: optText(80),
+  tags: z.array(z.string().trim().min(1).max(30)).max(8).default([]),
+  seoTitle: optText(70),
+  seoDescription: optText(170),
+  isFeatured: z.boolean().default(false),
+  publishedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  status: status.default('DRAFT'),
+});
+
+const slugify = (s: string, fallback = 'member') =>
   s
     .toLowerCase()
     .normalize('NFKD')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 70) || 'member';
+    .slice(0, 70) || fallback;
 
 /** Testimonials are published only with recorded consent for what is shown. */
 function assertTestimonialConsent(t: { status: string; consentName: boolean; consentPhoto: boolean; consentVideo: boolean; photoUrl: string | null; videoSource: string }) {
@@ -250,7 +273,15 @@ interface Collection {
   entity: string;
   delegate: () => Delegate;
   parse: (body: unknown, existing?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** Admin list order (default: the manual display order). */
+  orderBy?: unknown;
+  /** Extra fields to set when only the status changes (e.g. the first publish date). */
+  onStatus?: (existing: Record<string, unknown>, next: string) => Record<string, unknown>;
 }
+
+/** The first time a post goes live it gets today's date, unless the editor chose one. */
+const blogPublishDate = (existing: Record<string, unknown> | undefined, next: string) =>
+  (existing?.publishedAt as Date | null | undefined) ?? (next === 'PUBLISHED' ? new Date() : null);
 
 const collections: Collection[] = [
   {
@@ -300,6 +331,26 @@ const collections: Collection[] = [
     },
   },
   { name: 'gallery', entity: 'gallery_item', delegate: () => prisma.galleryItem as unknown as Delegate, parse: async (b) => gallerySchema.parse(b) },
+  {
+    name: 'blog',
+    entity: 'blog_post',
+    delegate: () => prisma.blogPost as unknown as Delegate,
+    orderBy: [{ publishedAt: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
+    parse: async (body, existing) => {
+      const b = blogSchema.parse(body);
+      const base = b.slug || (existing?.slug as string | undefined) || slugify(b.title, 'post');
+      let slug = base;
+      // Keep slugs unique by suffixing a number.
+      for (let i = 2; ; i++) {
+        const clash = await prisma.blogPost.findUnique({ where: { slug } });
+        if (!clash || clash.id === existing?.id) break;
+        slug = `${base}-${i}`;
+      }
+      const tags = [...new Set(b.tags)];
+      return { ...b, slug, tags, publishedAt: b.publishedAt ? new Date(b.publishedAt) : blogPublishDate(existing, b.status) };
+    },
+    onStatus: (existing, next) => ({ publishedAt: blogPublishDate(existing, next) }),
+  },
 ];
 
 for (const c of collections) {
@@ -308,7 +359,7 @@ for (const c of collections) {
     asyncHandler(async (req, res) => {
       const q = z.object({ status: status.optional(), includeArchived: z.enum(['true', 'false']).optional() }).parse(req.query);
       const where = q.status ? { status: q.status } : q.includeArchived === 'true' ? {} : { status: { not: 'ARCHIVED' } };
-      const items = await c.delegate().findMany({ where, orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }] });
+      const items = await c.delegate().findMany({ where, orderBy: c.orderBy ?? [{ displayOrder: 'asc' }, { createdAt: 'asc' }] });
       res.json({ ok: true, items });
     }),
   );
@@ -352,7 +403,7 @@ for (const c of collections) {
       if (c.name === 'testimonials') {
         assertTestimonialConsent({ ...(existing as unknown as Parameters<typeof assertTestimonialConsent>[0]), status: next });
       }
-      const item = await c.delegate().update({ where: { id }, data: { status: next } });
+      const item = await c.delegate().update({ where: { id }, data: { status: next, ...c.onStatus?.(existing, next) } });
       await log(req, `CMS_STATUS_${next}`, c.entity, id);
       revalidateWebsite(`${c.name}:status`);
       res.json({ ok: true, item });
@@ -456,10 +507,11 @@ cmsRouter.delete(
       prisma.testimonial.count({ where: { OR: [{ photoUrl: asset.url }, { videoUrl: asset.url }, { posterUrl: asset.url }] } }),
       prisma.galleryItem.count({ where: { OR: [{ url: asset.url }, { posterUrl: asset.url }] } }),
       prisma.course.count({ where: { imageUrl: asset.url } }),
+      prisma.blogPost.count({ where: { OR: [{ coverImageUrl: asset.url }, { body: { contains: asset.url } }] } }),
       prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(*) AS n FROM "content_blocks" WHERE "draft"::text LIKE ${'%' + asset.url + '%'} OR "published"::text LIKE ${'%' + asset.url + '%'}`,
     ]);
-    const blocks = Number((inUse[4] as { n: bigint }[])[0]?.n ?? 0);
-    if ((inUse.slice(0, 4) as number[]).some((n) => n > 0) || blocks > 0) {
+    const blocks = Number((inUse[5] as { n: bigint }[])[0]?.n ?? 0);
+    if ((inUse.slice(0, 5) as number[]).some((n) => n > 0) || blocks > 0) {
       throw new HttpError(409, 'This file is still used on the website. Remove it from the page first.');
     }
     await deletePublicObject(asset.storageKey);

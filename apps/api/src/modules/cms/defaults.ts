@@ -158,6 +158,11 @@ export const CONTENT_DEFAULTS: Record<string, Record<string, unknown>> = {
     heroTitle: 'Inside the studio',
     heroBody: 'A look at our space, our classes and our community.',
   },
+  'blog.page': {
+    heroEyebrow: 'Blog',
+    heroTitle: 'Notes on practice',
+    heroBody: 'Articles from our teachers on yoga, Pilates, breath and everyday wellbeing.',
+  },
   'chatbot.settings': {
     status: 'on',
     botName: 'Moksha Assistant',

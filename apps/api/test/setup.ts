@@ -227,56 +227,82 @@ process.env.RAZORPAY_KEY_SECRET = TEST_RZP_SECRET;
 process.env.RAZORPAY_WEBHOOK_SECRET = TEST_RZP_WEBHOOK_SECRET;
 process.env.RAZORPAY_API_BASE_URL = `http://127.0.0.1:${(rzpServer.address() as { port: number }).port}`;
 
-// ── Mock OpenAI Chat Completions (streaming) for the website chatbot ──
+// ── Mock Anthropic Messages API (streaming) for the website chatbot ──
 // A visitor message containing "save my details" makes the mock call save_enquiry with
-// openaiMock.toolArgs; after the tool result it answers with text. Anything else gets plain text.
-export const openaiMock = {
-  requests: [] as { body: any; authorization: string | undefined }[],
+// claudeMock.toolArgs; after the tool result it answers with text. Anything else gets plain text.
+export const claudeMock = {
+  requests: [] as { body: any; headers: http.IncomingHttpHeaders }[],
   toolArgs: { name: 'Chat Visitor', mobile: '98765 43210', interest: 'Mat Pilates', preferred_mode: 'Online', note: 'Wants a trial class' } as Record<string, string>,
   /** Status to answer the next request with (e.g. 401 for a bad key). */
   failWith: 0,
+  /** Answer the next request with stop_reason "refusal". */
+  refuseNext: false,
   reset() {
     this.requests.length = 0;
     this.failWith = 0;
+    this.refuseNext = false;
   },
 };
-const openaiServer = http.createServer((req, res) => {
+const claudeServer = http.createServer((req, res) => {
   let raw = '';
   req.on('data', (c) => (raw += c));
   req.on('end', () => {
     const body = JSON.parse(raw || '{}');
-    openaiMock.requests.push({ body, authorization: req.headers.authorization });
-    if (openaiMock.failWith) {
-      const status = openaiMock.failWith;
-      openaiMock.failWith = 0;
+    claudeMock.requests.push({ body, headers: req.headers });
+    if (claudeMock.failWith) {
+      const status = claudeMock.failWith;
+      claudeMock.failWith = 0;
       res.writeHead(status, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ error: { message: 'mock failure', type: 'test' } }));
+      return res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'mock failure' } }));
     }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
-    const chunk = (delta: object, finish: string | null = null) =>
-      res.write(`data: ${JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
-    const messages = body.messages as { role: string; content: string }[];
+    const event = (type: string, data: object) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+    const finish = (stop_reason: string) => {
+      event('message_delta', { delta: { stop_reason, stop_sequence: null }, usage: { output_tokens: 10 } });
+      event('message_stop', {});
+      res.end();
+    };
+    event('message_start', {
+      message: {
+        id: 'msg_test',
+        type: 'message',
+        role: 'assistant',
+        model: body.model,
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      },
+    });
+    const messages = body.messages as { role: string; content: any }[];
     const last = messages[messages.length - 1];
-    if (last.role === 'user' && /save my details/i.test(last.content) && body.tools?.length) {
-      const args = JSON.stringify(openaiMock.toolArgs);
-      chunk({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'save_enquiry', arguments: '' } }] });
-      chunk({ tool_calls: [{ index: 0, function: { arguments: args.slice(0, 20) } }] });
-      chunk({ tool_calls: [{ index: 0, function: { arguments: args.slice(20) } }] }, 'tool_calls');
-    } else {
-      const reply = last.role === 'tool' ? `Done: ${last.content}` : 'Namaste! Mat Pilates runs online.';
-      chunk({ role: 'assistant', content: '' });
-      chunk({ content: reply.slice(0, 10) });
-      chunk({ content: reply.slice(10) }, 'stop');
+    const toolResult = Array.isArray(last.content) ? last.content.find((b: { type: string }) => b.type === 'tool_result') : null;
+    if (claudeMock.refuseNext) {
+      claudeMock.refuseNext = false;
+      return finish('refusal');
     }
-    res.write(`data: ${JSON.stringify({ id: 'chatcmpl-test', object: 'chat.completion.chunk', created: 0, model: body.model, choices: [], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } })}\n\n`);
-    res.end('data: [DONE]\n\n');
+    if (typeof last.content === 'string' && /save my details/i.test(last.content)) {
+      const args = JSON.stringify(claudeMock.toolArgs);
+      event('content_block_start', { index: 0, content_block: { type: 'tool_use', id: 'toolu_1', name: 'save_enquiry', input: {} } });
+      event('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: args.slice(0, 20) } });
+      event('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: args.slice(20) } });
+      event('content_block_stop', { index: 0 });
+      return finish('tool_use');
+    }
+    const reply = toolResult ? `Done: ${toolResult.content}` : 'Namaste! Mat Pilates runs online.';
+    event('content_block_start', { index: 0, content_block: { type: 'text', text: '' } });
+    event('content_block_delta', { index: 0, delta: { type: 'text_delta', text: reply.slice(0, 10) } });
+    event('content_block_delta', { index: 0, delta: { type: 'text_delta', text: reply.slice(10) } });
+    event('content_block_stop', { index: 0 });
+    finish('end_turn');
   });
 });
-await new Promise<void>((r) => openaiServer.listen(0, '127.0.0.1', r));
-openaiServer.unref();
-export const TEST_OPENAI_KEY = 'sk-test-openai-DO-NOT-LOG';
-process.env.OPENAI_API_KEY = TEST_OPENAI_KEY;
-process.env.OPENAI_BASE_URL = `http://127.0.0.1:${(openaiServer.address() as { port: number }).port}`;
+await new Promise<void>((r) => claudeServer.listen(0, '127.0.0.1', r));
+claudeServer.unref();
+export const TEST_ANTHROPIC_KEY = 'sk-ant-test-DO-NOT-LOG';
+process.env.ANTHROPIC_API_KEY = TEST_ANTHROPIC_KEY;
+process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(claudeServer.address() as { port: number }).port}`;
+process.env.CHATBOT_MODEL = 'claude-opus-5-5';
 process.env.CHATBOT_VISITOR_DAILY_LIMIT = '40';
 
 export const TEST_DB = testDb;

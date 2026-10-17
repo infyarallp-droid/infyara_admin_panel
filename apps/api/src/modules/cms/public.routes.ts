@@ -29,6 +29,95 @@ publicContentRouter.get(
   }),
 );
 
+// ───────────────────────── Blog ─────────────────────────
+// Articles are not part of /site (bodies can be long): the list and each article load separately.
+
+function previewRequested(req: { query: Record<string, unknown>; headers: Record<string, unknown> }) {
+  const preview = req.query.preview === '1';
+  if (preview && !safeEqual(req.headers['x-service-key'] as string | undefined, env.WEBSITE_SERVICE_KEY)) {
+    throw new HttpError(401, 'Preview is only available to the website');
+  }
+  return preview;
+}
+
+const blogVisible = (preview: boolean) =>
+  preview ? { status: { in: ['PUBLISHED', 'DRAFT'] as ('PUBLISHED' | 'DRAFT')[] } } : { status: 'PUBLISHED' as const, publishedAt: { lte: new Date() } };
+const blogOrder = [{ isFeatured: 'desc' as const }, { publishedAt: { sort: 'desc' as const, nulls: 'first' as const } }, { createdAt: 'desc' as const }];
+const blogCard = {
+  id: true,
+  slug: true,
+  title: true,
+  excerpt: true,
+  coverImageUrl: true,
+  coverAlt: true,
+  authorName: true,
+  tags: true,
+  isFeatured: true,
+  publishedAt: true,
+  status: true,
+} as const;
+
+/** About 200 words a minute, at least one. */
+const readMinutes = (body: string) => Math.max(1, Math.round(body.split(/\s+/).filter(Boolean).length / 200));
+
+// GET /api/public/blog — every visible article, without the body.
+publicContentRouter.get(
+  '/blog',
+  asyncHandler(async (req, res) => {
+    const preview = previewRequested(req);
+    const posts = await prisma.blogPost.findMany({ where: blogVisible(preview), orderBy: blogOrder, select: { ...blogCard, body: true } });
+    res.setHeader('Cache-Control', preview ? 'no-store' : 'public, max-age=30, stale-while-revalidate=300');
+    res.json({ ok: true, posts: posts.map(({ body, ...p }) => ({ ...p, readMinutes: readMinutes(body) })) });
+  }),
+);
+
+// GET /api/public/blog/:slug — one article with a few others to read next.
+publicContentRouter.get(
+  '/blog/:slug',
+  asyncHandler(async (req, res) => {
+    const preview = previewRequested(req);
+    const slug = String(req.params.slug).toLowerCase().slice(0, 100);
+    const post = await prisma.blogPost.findFirst({ where: { ...blogVisible(preview), slug } });
+    if (!post) throw new HttpError(404, 'Article not found');
+    const others = await prisma.blogPost.findMany({
+      where: { ...blogVisible(preview), id: { not: post.id } },
+      orderBy: [{ publishedAt: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
+      select: { ...blogCard, body: true },
+      take: 12,
+    });
+    // Prefer articles that share a tag, then the newest.
+    const shared = (tags: string[]) => tags.filter((t) => post.tags.includes(t)).length;
+    const related = others
+      .map((p, i) => ({ p, score: shared(p.tags) * 100 - i }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(({ p: { body, ...p } }) => ({ ...p, readMinutes: readMinutes(body) }));
+    res.setHeader('Cache-Control', preview ? 'no-store' : 'public, max-age=30, stale-while-revalidate=300');
+    res.json({
+      ok: true,
+      post: {
+        id: post.id,
+        slug: post.slug,
+        title: post.title,
+        excerpt: post.excerpt,
+        body: post.body,
+        coverImageUrl: post.coverImageUrl,
+        coverAlt: post.coverAlt,
+        authorName: post.authorName,
+        tags: post.tags,
+        seoTitle: post.seoTitle,
+        seoDescription: post.seoDescription,
+        isFeatured: post.isFeatured,
+        publishedAt: post.publishedAt,
+        updatedAt: post.updatedAt,
+        status: post.status,
+        readMinutes: readMinutes(post.body),
+      },
+      related,
+    });
+  }),
+);
+
 export type PublicSite = Awaited<ReturnType<typeof loadPublicSite>>;
 
 /** Everything the public website shows (also what the AI chatbot knows). */
@@ -36,7 +125,7 @@ export async function loadPublicSite(preview = false) {
   const visible = preview ? { status: { in: ['PUBLISHED', 'DRAFT'] as ('PUBLISHED' | 'DRAFT')[] } } : { status: 'PUBLISHED' as const };
   const now = new Date();
 
-  const [blocks, team, testimonials, faqs, announcements, gallery, courses] = await Promise.all([
+  const [blocks, team, testimonials, faqs, announcements, gallery, courses, blogCount] = await Promise.all([
     prisma.contentBlock.findMany(),
     prisma.teamMember.findMany({ where: visible, orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }] }),
     prisma.testimonial.findMany({ where: visible, orderBy: [{ isFeatured: 'desc' }, { displayOrder: 'asc' }, { createdAt: 'asc' }] }),
@@ -54,6 +143,7 @@ export async function loadPublicSite(preview = false) {
       include: { plans: { where: { isActive: true, isOnlinePurchasable: true }, orderBy: { pricePaise: 'asc' } } },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
     }),
+    prisma.blogPost.count({ where: blogVisible(preview) }),
   ]);
 
   const blockData: Record<string, unknown> = {};
@@ -67,8 +157,8 @@ export async function loadPublicSite(preview = false) {
     preview,
     /** Tax added at checkout on top of plan fees (0 = none). */
     taxPercent: env.TAX_PERCENT,
-    /** The AI chatbot can run (an OpenAI key is configured); the admin switches it on/off in "AI chatbot". */
-    chatbotAvailable: !!env.OPENAI_API_KEY,
+    /** The AI chatbot can run (an Anthropic key is configured); the admin switches it on/off in "AI chatbot". */
+    chatbotAvailable: !!env.ANTHROPIC_API_KEY,
     blocks: blockData,
     team: team.map((m) => ({
       id: m.id,
@@ -101,6 +191,8 @@ export async function loadPublicSite(preview = false) {
       })),
     faqs: faqs.map((f) => ({ id: f.id, question: f.question, answer: f.answer, page: f.page })),
     announcements: announcements.map((a) => ({ id: a.id, message: a.message, linkLabel: a.linkLabel, linkUrl: a.linkUrl })),
+    /** Number of visible blog articles (the website shows "Blog" in its menu when there are any). */
+    blogCount,
     gallery: gallery.map((g) => ({ id: g.id, kind: g.kind, url: g.url, posterUrl: g.posterUrl, caption: g.caption, alt: g.alt, album: g.album })),
     programmes: courses.map((c) => ({
       id: c.id,

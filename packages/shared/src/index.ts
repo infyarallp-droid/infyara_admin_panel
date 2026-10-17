@@ -573,6 +573,12 @@ export const CONTENT_BLOCKS: ContentBlockDef[] = [
     fields: [t('heroEyebrow', 'Small heading', 80), t('heroTitle', 'Headline', 120, { required: true }), ta('heroBody', 'Introduction', 600)],
   },
   {
+    key: 'blog.page',
+    label: 'Blog page',
+    page: '/blog',
+    fields: [t('heroEyebrow', 'Small heading', 80), t('heroTitle', 'Headline', 120, { required: true }), ta('heroBody', 'Introduction', 600)],
+  },
+  {
     key: 'chatbot.settings',
     label: 'AI chatbot',
     page: '/',
@@ -585,7 +591,7 @@ export const CONTENT_BLOCKS: ContentBlockDef[] = [
           { value: 'on', label: 'On — show the chat button' },
           { value: 'off', label: 'Off — hide it' },
         ],
-        help: 'Works only once OPENAI_API_KEY is set on the API server.',
+        help: 'Works only once ANTHROPIC_API_KEY is set on the API server.',
       },
       t('botName', 'Assistant name', 40, { help: 'Shown at the top of the chat window.' }),
       ta('greeting', 'First message', 400, { help: 'What the assistant says when a visitor opens the chat.' }),

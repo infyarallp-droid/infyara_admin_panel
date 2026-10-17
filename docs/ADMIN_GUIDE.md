@@ -100,7 +100,7 @@ Written and video feedback from students.
 greeting, suggested questions, extra facts (timings, fees, offers…) and extra instructions. It already reads your
 programmes, plans, FAQs, team and contact details. When a visitor agrees to share their name and mobile number it
 creates a lead in **Leads** (form: *website-chatbot*, with the visitor's messages for context).
-First-time setup (OpenAI key on Render): *docs/SETUP_CHATBOT.md*.
+First-time setup (Anthropic API key on Render): *docs/SETUP_CHATBOT.md*.
 
 ## WhatsApp
 

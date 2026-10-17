@@ -27,6 +27,7 @@ const ICONS: Record<string, string> = {
   help: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-2.5-11.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14m0 3h.01',
   megaphone: 'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Zm12-3a5 5 0 0 1 0 8m3-11a9 9 0 0 1 0 14',
   image: 'M4 5h16v14H4V5Zm0 11 4-4 3 3 4-5 5 6M9 9.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z',
+  pen: 'M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Zm9.5-13.5 4 4',
   layers: 'm12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5',
   shield: 'M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z',
   consent: 'M9 12l2 2 4-4M7 3h10v18H7z',
@@ -86,6 +87,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
       { to: '/website/faqs', label: 'FAQs', icon: 'help', roles: MANAGERS },
       { to: '/website/announcements', label: 'Announcements', icon: 'megaphone', roles: MANAGERS },
       { to: '/website/gallery', label: 'Gallery & Media', icon: 'image', roles: MANAGERS },
+      { to: '/website/blog', label: 'Blog', icon: 'pen', roles: MANAGERS },
     ],
   },
   {

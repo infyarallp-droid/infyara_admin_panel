@@ -128,7 +128,7 @@ export function studioFacts(site: PublicSite, settings: ChatbotSettings): string
   return out.join('\n');
 }
 
-/** The full instructions. Stable for a given content version, so OpenAI's prompt cache can reuse it. */
+/** The full instructions. Stable for a given content version, so Claude's prompt cache can reuse it. */
 export function systemPrompt(site: PublicSite, settings: ChatbotSettings): string {
   const name = settings.botName.trim() || 'Moksha Assistant';
   return `You are ${name}, the assistant on the website of Moksha Wellness, a yoga and Pilates studio in India that also teaches online and runs teacher training programmes. You help visitors choose a class, understand the programmes and plans, and get in touch with the studio team.

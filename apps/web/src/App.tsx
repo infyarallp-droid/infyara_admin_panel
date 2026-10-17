@@ -27,6 +27,7 @@ const Testimonials = lazy(() => import('./pages/cms/Testimonials'));
 const Faqs = lazy(() => import('./pages/cms/Faqs'));
 const Announcements = lazy(() => import('./pages/cms/Announcements'));
 const Gallery = lazy(() => import('./pages/cms/Gallery'));
+const Blog = lazy(() => import('./pages/cms/Blog'));
 const Programmes = lazy(() => import('./pages/cms/Programmes'));
 
 const MANAGERS = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
@@ -93,6 +94,7 @@ export default function App() {
             <Route path="website/faqs" element={<RoleGate roles={MANAGERS}><Faqs /></RoleGate>} />
             <Route path="website/announcements" element={<RoleGate roles={MANAGERS}><Announcements /></RoleGate>} />
             <Route path="website/gallery" element={<RoleGate roles={MANAGERS}><Gallery /></RoleGate>} />
+            <Route path="website/blog" element={<RoleGate roles={MANAGERS}><Blog /></RoleGate>} />
             <Route path="audit" element={<RoleGate roles={['SUPER_ADMIN', 'ADMIN']}><AuditLog /></RoleGate>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -100,10 +100,12 @@ const schema = z.object({
   RAZORPAY_WEBHOOK_SECRET: optional,
   RAZORPAY_API_BASE_URL: z.string().default('https://api.razorpay.com/v1'),
 
-  // ── AI chatbot on the website (OpenAI) ──
-  // Unset = no chat button on the website. Create the key at platform.openai.com → API keys.
-  OPENAI_API_KEY: optional,
-  OPENAI_MODEL: z.string().default('gpt-4.1-mini'),
+  // ── AI chatbot on the website (Claude) ──
+  // Unset = no chat button on the website. Create the key at console.anthropic.com → API keys.
+  ANTHROPIC_API_KEY: optional,
+  CHATBOT_MODEL: z.string().default('claude-opus-5-5'),
+  // How much Claude thinks before replying: low suits quick chat answers.
+  CHATBOT_EFFORT: z.enum(['low', 'medium', 'high']).default('low'),
   // Cost guards: replies across all visitors per day, and per visitor (IP) per day.
   CHATBOT_DAILY_LIMIT: z.coerce.number().int().min(0).max(100_000).default(500),
   CHATBOT_VISITOR_DAILY_LIMIT: z.coerce.number().int().min(1).max(1000).default(40),
