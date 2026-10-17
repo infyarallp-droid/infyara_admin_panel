@@ -68,7 +68,78 @@ const schema = z.object({
 
   PUBLIC_LEADS_API_KEY: z.string().default('change-me-public-api-key'),
   GOOGLE_FORM_SHARED_SECRET: z.string().default('change-me-google-secret'),
+
+  // ── Website ↔ API ──
+  // Shared secret the website's server sends on every account/auth call (never reaches a browser).
+  WEBSITE_SERVICE_KEY: z.string().default('change-me-website-service-key'),
+  // Public website address (on-demand revalidation after content is published, payment redirects).
+  WEBSITE_URL: optional,
+  WEBSITE_REVALIDATE_SECRET: optional,
+  CUSTOMER_SESSION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  // Google sign-in: the OAuth client id (the website holds the client secret).
+  GOOGLE_CLIENT_ID: optional,
+  GOOGLE_JWKS_URL: z.string().default('https://www.googleapis.com/oauth2/v3/certs'),
+
+  // ── Media for the public website (public bucket) ──
+  SUPABASE_PUBLIC_BUCKET: z.string().default('moksha-public'),
+  MEDIA_MAX_IMAGE_MB: z.coerce.number().min(1).max(20).default(8),
+  MEDIA_MAX_VIDEO_MB: z.coerce.number().min(1).max(200).default(50),
+
+  // ── WhatsApp extras ──
+  // Business-initiated messages need recorded opt-in. "false" only for local testing.
+  WHATSAPP_REQUIRE_CONSENT: z
+    .string()
+    .default('true')
+    .transform((v) => !['0', 'false', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // WhatsApp Business Account id — needed only for "Sync templates from Meta".
+  WHATSAPP_BUSINESS_ACCOUNT_ID: optional,
+
+  // ── Razorpay ──
+  RAZORPAY_KEY_ID: optional,
+  RAZORPAY_KEY_SECRET: optional,
+  RAZORPAY_WEBHOOK_SECRET: optional,
+  RAZORPAY_API_BASE_URL: z.string().default('https://api.razorpay.com/v1'),
+
+  // ── Scheduled jobs ──
+  // Secret for POST /internal/jobs/tick (called by Render Cron / an external scheduler).
+  CRON_SECRET: optional,
+  // Also run the tick inside the API process every N seconds (only on an always-on instance).
+  INTERNAL_SCHEDULER_SECONDS: z.coerce.number().int().min(0).max(3600).default(0),
 });
 
-export const env = schema.parse(process.env);
+const parsed = schema.parse(process.env);
+
+// Refuse to start in production with sample/default secrets or fail-open settings.
+if (parsed.NODE_ENV === 'production') {
+  const problems: string[] = [];
+  const weak = (name: keyof typeof parsed, value: string | undefined, sample: string[]) => {
+    if (!value || sample.includes(value) || value.length < 24) problems.push(`${String(name)} must be set to a long random value`);
+  };
+  weak('JWT_SECRET', parsed.JWT_SECRET, ['change-me-access-secret']);
+  weak('JWT_REFRESH_SECRET', parsed.JWT_REFRESH_SECRET, ['change-me-refresh-secret']);
+  weak('PUBLIC_LEADS_API_KEY', parsed.PUBLIC_LEADS_API_KEY, ['change-me-public-api-key']);
+  weak('GOOGLE_FORM_SHARED_SECRET', parsed.GOOGLE_FORM_SHARED_SECRET, ['change-me-google-secret']);
+  weak('WEBSITE_SERVICE_KEY', parsed.WEBSITE_SERVICE_KEY, ['change-me-website-service-key']);
+  if (/^0+$/.test(parsed.ENCRYPTION_KEY)) problems.push('ENCRYPTION_KEY must not be the sample all-zero key');
+  if (parsed.STORAGE_PROVIDER === 'local') problems.push('STORAGE_PROVIDER=local loses files on every deploy — use supabase');
+  if (parsed.WHATSAPP_ACCESS_TOKEN && !parsed.WHATSAPP_APP_SECRET) {
+    problems.push('WHATSAPP_APP_SECRET is required when WhatsApp is configured (webhook signature check)');
+  }
+  if (parsed.WHATSAPP_ACCESS_TOKEN && parsed.WHATSAPP_VERIFY_TOKEN === 'moksha-verify-token') {
+    problems.push('WHATSAPP_VERIFY_TOKEN must not be the sample value');
+  }
+  if (parsed.RAZORPAY_KEY_ID && !parsed.RAZORPAY_WEBHOOK_SECRET) {
+    problems.push('RAZORPAY_WEBHOOK_SECRET is required when Razorpay is configured');
+  }
+  if (problems.length) {
+    throw new Error(`Unsafe production configuration:\n - ${problems.join('\n - ')}`);
+  }
+}
+
+export const env = parsed;
 export type Env = z.infer<typeof schema>;
+
+/** Allowed browser origins for CORS (WEB_ORIGIN may list several, comma-separated). */
+export const webOrigins = env.WEB_ORIGIN.split(',')
+  .map((o) => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean);

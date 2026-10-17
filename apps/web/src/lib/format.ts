@@ -15,6 +15,40 @@ export function fmtDate(value?: string | null): string {
   return `${String(d).padStart(2, '0')} ${months[m - 1]} ${y}`;
 }
 
+/** A timestamp in the studio's timezone, e.g. 17 Oct 2026, 6:45 pm. */
+export function fmtDateTime(value?: string | null): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/** "3 min ago", "2 days ago". */
+export function timeAgo(value?: string | null): string {
+  if (!value) return 'never';
+  const s = Math.round((Date.now() - new Date(value).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.round(h / 24);
+  return d < 30 ? `${d} day${d === 1 ? '' : 's'} ago` : fmtDateTime(value).split(',')[0];
+}
+
+/** A short device description from a user-agent string. */
+export function deviceLabel(ua?: string | null): string {
+  if (!ua) return 'Unknown device';
+  const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iPhone/iPad' : /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'Other';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  return `${browser} on ${os}`;
+}
+
 export function addDays(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);

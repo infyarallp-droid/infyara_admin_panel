@@ -5,7 +5,7 @@ import { prisma } from '../../lib/prisma.js';
 import { asyncHandler, HttpError } from '../../lib/http.js';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { encrypt, decrypt, maskTail } from '../../lib/encryption.js';
-import { putObject } from '../../lib/storage.js';
+import { getObject, putObject } from '../../lib/storage.js';
 
 export const employeesRouter = Router();
 employeesRouter.use(requireAuth);
@@ -107,8 +107,35 @@ employeesRouter.post(
       .parse(req.body.docType ?? 'OTHER');
     const stored = await putObject('employee-docs', req.file.originalname, req.file.buffer, req.file.mimetype);
     const document = await prisma.employeeDocument.create({
-      data: { employeeId: req.params.id, docType, fileUrl: stored.url },
+      // fileUrl points at the authenticated download route; the storage URL is never handed out.
+      data: { employeeId: req.params.id, docType, fileUrl: 'pending', fileKey: stored.key, mimeType: req.file.mimetype },
     });
-    res.status(201).json({ ok: true, document });
+    const updated = await prisma.employeeDocument.update({
+      where: { id: document.id },
+      data: { fileUrl: `/api/employees/${req.params.id}/documents/${document.id}/file` },
+    });
+    res.status(201).json({ ok: true, document: updated });
+  }),
+);
+
+// GET /api/employees/:id/documents/:docId/file — staff-only download (Aadhaar/PAN scans are sensitive).
+employeesRouter.get(
+  '/:id/documents/:docId/file',
+  manage,
+  asyncHandler(async (req, res) => {
+    const docId = z.string().uuid().safeParse(req.params.docId);
+    if (!docId.success) throw new HttpError(404, 'Document not found');
+    const doc = await prisma.employeeDocument.findUnique({ where: { id: docId.data } });
+    if (!doc || doc.employeeId !== req.params.id) throw new HttpError(404, 'Document not found');
+    if (!doc.fileKey) {
+      // Uploaded before this change: only a stored link exists.
+      if (/^https?:\/\//.test(doc.fileUrl)) return res.redirect(doc.fileUrl);
+      throw new HttpError(404, 'File not found');
+    }
+    const buffer = await getObject(doc.fileKey);
+    res.setHeader('Content-Type', doc.mimeType ?? 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(buffer);
   }),
 );

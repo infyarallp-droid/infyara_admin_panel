@@ -41,6 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Revoke the refresh token on the server too (best effort), then forget it locally.
+    const refreshToken = tokens.refresh;
+    if (refreshToken) api.post('/api/auth/logout', { refreshToken }).catch(() => undefined);
     tokens.clear();
     setUser(null);
     window.location.href = '/login';

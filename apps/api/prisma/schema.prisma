@@ -154,6 +154,7 @@ model User {
   notifications    Notification[]
   auditLogs        AuditLog[]
   employee         Employee?
+  sessions         StaffSession[]
 
   @@index([role])
   @@map("users")
@@ -221,12 +222,13 @@ model Student {
   createdAt                 DateTime      @default(now()) @map("created_at")
   updatedAt                 DateTime      @updatedAt @map("updated_at")
 
-  createdBy     User?         @relation("StudentCreatedBy", fields: [createdById], references: [id])
-  convertedFrom Lead?         @relation("LeadConvertedStudent")
+  createdBy     User?            @relation("StudentCreatedBy", fields: [createdById], references: [id])
+  convertedFrom Lead?            @relation("LeadConvertedStudent")
   enrollments   Enrollment[]
   consentForms  ConsentForm[]
   invoices      Invoice[]
   receipts      Receipt[]
+  account       CustomerAccount?
 
   @@index([mobile])
   @@index([email])
@@ -314,18 +316,26 @@ model ConsentUpload {
 // ───────────────────────── Courses, timings, enrollments ─────────────────────────
 
 model Course {
-  id           String         @id @default(uuid()) @db.Uuid
+  id            String         @id @default(uuid()) @db.Uuid
   /// Stable short code (used by the catalogue sync and the legacy import).
-  code         String?        @unique
-  name         String
-  category     CourseCategory
-  discipline   Discipline?
+  code          String?        @unique
+  name          String
+  category      CourseCategory
+  discipline    Discipline?
   /// Null = delivery mode not yet confirmed by the business.
-  deliveryMode DeliveryMode?  @map("delivery_mode")
-  description  String?
-  isActive     Boolean        @default(true) @map("is_active")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
+  deliveryMode  DeliveryMode?  @map("delivery_mode")
+  description   String?
+  isActive      Boolean        @default(true) @map("is_active")
+  // ── Public website fields (the website's programme list comes from here) ──
+  /// URL slug on the website, e.g. "regular-studio-yoga".
+  slug          String?        @unique
+  isPublished   Boolean        @default(false) @map("is_published")
+  publicSummary String?        @map("public_summary")
+  publicForWhom String?        @map("public_for_whom")
+  displayOrder  Int            @default(0) @map("display_order")
+  imageUrl      String?        @map("image_url")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
 
   plans   CoursePlan[]
   timings ClassTiming[]
@@ -335,16 +345,18 @@ model Course {
 }
 
 model CoursePlan {
-  id              String       @id @default(uuid()) @db.Uuid
-  courseId        String       @map("course_id") @db.Uuid
-  title           String
-  durationType    DurationType @map("duration_type")
-  durationValue   Int?         @map("duration_value")
-  pricePaise      BigInt       @map("price_paise")
-  sessionsPerWeek Int?         @map("sessions_per_week")
-  isActive        Boolean      @default(true) @map("is_active")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
+  id                  String       @id @default(uuid()) @db.Uuid
+  courseId            String       @map("course_id") @db.Uuid
+  title               String
+  durationType        DurationType @map("duration_type")
+  durationValue       Int?         @map("duration_value")
+  pricePaise          BigInt       @map("price_paise")
+  sessionsPerWeek     Int?         @map("sessions_per_week")
+  isActive            Boolean      @default(true) @map("is_active")
+  /// Students may buy this plan online from the website (its fee is then shown publicly).
+  isOnlinePurchasable Boolean      @default(false) @map("is_online_purchasable")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
 
   course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
   enrollments Enrollment[]
@@ -468,6 +480,8 @@ model Payment {
   /// create a second payment.
   idempotencyKey String?     @unique @map("idempotency_key")
   notes          String?
+  /// Amount refunded through the payment gateway (paise).
+  refundedPaise  BigInt      @default(0) @map("refunded_paise")
   createdAt      DateTime    @default(now()) @map("created_at")
 
   invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
@@ -563,9 +577,10 @@ model Employee {
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
-  user      User?              @relation(fields: [userId], references: [id])
-  documents EmployeeDocument[]
-  timings   ClassTiming[]
+  user        User?              @relation(fields: [userId], references: [id])
+  documents   EmployeeDocument[]
+  timings     ClassTiming[]
+  teamProfile TeamMember?
 
   @@map("employees")
 }
@@ -575,6 +590,9 @@ model EmployeeDocument {
   employeeId String   @map("employee_id") @db.Uuid
   docType    String   @map("doc_type") // AADHAAR | PAN | PHOTO | CERTIFICATE | OTHER
   fileUrl    String   @map("file_url")
+  /// Storage key — files are served through an authenticated route, never by long-lived URL.
+  fileKey    String?  @map("file_key")
+  mimeType   String?  @map("mime_type")
   uploadedAt DateTime @default(now()) @map("uploaded_at")
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
@@ -625,13 +643,15 @@ model LeadActivity {
 }
 
 model WebhookEvent {
-  id             String   @id @default(uuid()) @db.Uuid
-  channel        String
-  rawPayload     Json?    @map("raw_payload")
-  signatureValid Boolean? @map("signature_valid")
-  processed      Boolean  @default(false)
-  error          String?
-  receivedAt     DateTime @default(now()) @map("received_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  channel         String
+  rawPayload      Json?    @map("raw_payload")
+  signatureValid  Boolean? @map("signature_valid")
+  /// Provider event id (e.g. x-razorpay-event-id) — makes webhook processing idempotent.
+  externalEventId String?  @unique @map("external_event_id")
+  processed       Boolean  @default(false)
+  error           String?
+  receivedAt      DateTime @default(now()) @map("received_at")
 
   @@index([processed, receivedAt])
   @@map("webhook_events")
@@ -677,6 +697,11 @@ model MessageLog {
   providerResponse  Json?     @map("provider_response")
   error             String?
   triggeredBy       String?   @map("triggered_by")
+  /// QUEUED rows are sent by the job runner once scheduledFor has passed.
+  scheduledFor      DateTime? @map("scheduled_for")
+  campaignId        String?   @map("campaign_id") @db.Uuid
+  ruleId            String?   @map("rule_id") @db.Uuid
+  templateId        String?   @map("template_id") @db.Uuid
   sentAt            DateTime? @map("sent_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -685,5 +710,471 @@ model MessageLog {
   @@index([enrollmentId])
   @@index([providerMessageId])
   @@index([status, createdAt])
+  @@index([status, scheduledFor])
+  @@index([campaignId])
   @@map("message_logs")
+}
+
+// ───────────────────────── Website accounts (students / customers) ─────────────────────────
+// Separate from staff `users`. Every account has a mobile number. Accounts are
+// never attached to a studio Student record automatically (the number is not
+// verified): staff link them on the admin panel's "Website Logins" page.
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum AuthMethod {
+  MOBILE_PASSWORD
+  EMAIL_PASSWORD
+  GOOGLE
+}
+
+model CustomerAccount {
+  id                 String        @id @default(uuid()) @db.Uuid
+  fullName           String        @map("full_name")
+  /// 10-digit Indian mobile (same normalisation as students.mobile).
+  mobile             String        @unique
+  /// Stored lower-case; unique so it can be used to sign in (mobile stays mandatory).
+  email              String?       @unique
+  /// bcrypt hash; null for Google-only accounts until they set a password.
+  passwordHash       String?       @map("password_hash")
+  signupMethod       AuthMethod    @map("signup_method")
+  status             AccountStatus @default(ACTIVE)
+  studentId          String?       @unique @map("student_id") @db.Uuid
+  linkedAt           DateTime?     @map("linked_at")
+  linkedById         String?       @map("linked_by") @db.Uuid
+  lastLoginAt        DateTime?     @map("last_login_at")
+  loginCount         Int           @default(0) @map("login_count")
+  /// Staff-issued temporary password must be changed at next sign-in.
+  mustChangePassword Boolean       @default(false) @map("must_change_password")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  student     Student?             @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  identities  AuthIdentity[]
+  sessions    CustomerSession[]
+  loginEvents CustomerLoginEvent[]
+  orders      PaymentOrder[]
+
+  @@index([createdAt])
+  @@index([lastLoginAt])
+  @@map("customer_accounts")
+}
+
+/// External sign-in identities linked to an account (currently Google).
+model AuthIdentity {
+  id        String     @id @default(uuid()) @db.Uuid
+  accountId String     @map("account_id") @db.Uuid
+  provider  AuthMethod
+  /// Provider's stable user id (Google "sub").
+  subject   String
+  email     String?
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  account CustomerAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject])
+  @@index([accountId])
+  @@map("auth_identities")
+}
+
+/// Opaque, revocable website sessions. Only a SHA-256 of the token is stored.
+model CustomerSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  accountId  String    @map("account_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+  userAgent  String?   @map("user_agent")
+  ip         String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  account CustomerAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@map("customer_sessions")
+}
+
+/// Every website sign-in and failed attempt — shown on the Website Logins page.
+model CustomerLoginEvent {
+  id        String     @id @default(uuid()) @db.Uuid
+  accountId String?    @map("account_id") @db.Uuid
+  mobile    String?
+  method    AuthMethod
+  success   Boolean
+  reason    String?
+  ip        String?
+  userAgent String?    @map("user_agent")
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  account CustomerAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([createdAt])
+  @@map("customer_login_events")
+}
+
+/// Staff refresh-token sessions: rotated on every refresh, revocable, re-checked against the user.
+model StaffSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  /// Set when this token was exchanged for a new one; presenting it again revokes all the user's sessions.
+  rotatedAt DateTime? @map("rotated_at")
+  userAgent String?   @map("user_agent")
+  ip        String?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("staff_sessions")
+}
+
+// ───────────────────────── Website content (CMS) ─────────────────────────
+
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+/// Files uploaded for the public website (public bucket).
+model MediaAsset {
+  id           String    @id @default(uuid()) @db.Uuid
+  kind         MediaKind
+  storageKey   String    @unique @map("storage_key")
+  url          String
+  mimeType     String    @map("mime_type")
+  sizeBytes    Int       @map("size_bytes")
+  originalName String?   @map("original_name")
+  alt          String?
+  uploadedById String?   @map("uploaded_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([kind, createdAt])
+  @@map("media_assets")
+}
+
+/// Structured page sections (home hero, about story, contact details…). JSON validated by @moksha/shared.
+model ContentBlock {
+  key           String    @id
+  draft         Json
+  published     Json?
+  publishedAt   DateTime? @map("published_at")
+  updatedById   String?   @map("updated_by") @db.Uuid
+  publishedById String?   @map("published_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("content_blocks")
+}
+
+/// Public team profile. Deliberately separate from the HR Employee record (which holds PII).
+model TeamMember {
+  id             String        @id @default(uuid()) @db.Uuid
+  employeeId     String?       @unique @map("employee_id") @db.Uuid
+  name           String
+  slug           String        @unique
+  title          String
+  shortBio       String        @map("short_bio")
+  bio            String?
+  photoUrl       String?       @map("photo_url")
+  specialization String?
+  experience     String?
+  qualifications String?
+  /// { instagram, facebook, youtube, linkedin, website }
+  socialLinks    Json?         @map("social_links")
+  displayOrder   Int           @default(0) @map("display_order")
+  status         PublishStatus @default(DRAFT)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([status, displayOrder])
+  @@map("team_members")
+}
+
+enum VideoSource {
+  NONE
+  YOUTUBE
+  VIMEO
+  UPLOAD
+}
+
+model Testimonial {
+  id                  String        @id @default(uuid()) @db.Uuid
+  studentId           String?       @map("student_id") @db.Uuid
+  studentName         String        @map("student_name")
+  photoUrl            String?       @map("photo_url")
+  videoSource         VideoSource   @default(NONE) @map("video_source")
+  /// YouTube/Vimeo page URL, or the uploaded file's public URL.
+  videoUrl            String?       @map("video_url")
+  posterUrl           String?       @map("poster_url")
+  quote               String
+  courseName          String?       @map("course_name")
+  displayOrder        Int           @default(0) @map("display_order")
+  status              PublishStatus @default(DRAFT)
+  isFeatured          Boolean       @default(false) @map("is_featured")
+  // Consent for public display — required before publishing.
+  consentName         Boolean       @default(false) @map("consent_name")
+  consentPhoto        Boolean       @default(false) @map("consent_photo")
+  consentVideo        Boolean       @default(false) @map("consent_video")
+  consentRecordedAt   DateTime?     @map("consent_recorded_at")
+  consentRecordedById String?       @map("consent_recorded_by") @db.Uuid
+  consentNote         String?       @map("consent_note")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  @@index([status, displayOrder])
+  @@map("testimonials")
+}
+
+model Faq {
+  id           String        @id @default(uuid()) @db.Uuid
+  question     String
+  answer       String
+  /// Where it shows: HOME | CLASSES | TRAINING | CONTACT
+  page         String        @default("HOME")
+  displayOrder Int           @default(0) @map("display_order")
+  status       PublishStatus @default(DRAFT)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([page, status, displayOrder])
+  @@map("faqs")
+}
+
+model Announcement {
+  id           String        @id @default(uuid()) @db.Uuid
+  message      String
+  linkLabel    String?       @map("link_label")
+  linkUrl      String?       @map("link_url")
+  startsAt     DateTime?     @map("starts_at")
+  endsAt       DateTime?     @map("ends_at")
+  status       PublishStatus @default(DRAFT)
+  displayOrder Int           @default(0) @map("display_order")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("announcements")
+}
+
+model GalleryItem {
+  id           String        @id @default(uuid()) @db.Uuid
+  kind         MediaKind     @default(IMAGE)
+  url          String
+  posterUrl    String?       @map("poster_url")
+  caption      String?
+  alt          String?
+  album        String?
+  displayOrder Int           @default(0) @map("display_order")
+  status       PublishStatus @default(DRAFT)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([status, displayOrder])
+  @@map("gallery_items")
+}
+
+// ───────────────────────── WhatsApp: consent, templates, rules, campaigns ─────────────────────────
+
+enum ConsentState {
+  OPTED_IN
+  OPTED_OUT
+}
+
+/// Append-only consent ledger. The latest row for a mobile is its current state.
+model WhatsAppConsent {
+  id           String       @id @default(uuid()) @db.Uuid
+  mobile       String
+  state        ConsentState
+  /// WEBSITE_SIGNUP | ACCOUNT_SETTINGS | STAFF_RECORDED | INBOUND_KEYWORD
+  source       String
+  /// Exact wording the person agreed to (or a staff note).
+  consentText  String?      @map("consent_text")
+  studentId    String?      @map("student_id") @db.Uuid
+  accountId    String?      @map("account_id") @db.Uuid
+  recordedById String?      @map("recorded_by") @db.Uuid
+  ip           String?
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@index([mobile, createdAt])
+  @@map("whatsapp_consents")
+}
+
+/// A template approved in Meta (synced, or entered by hand). Only APPROVED templates are sent.
+model WhatsAppTemplate {
+  id            String    @id @default(uuid()) @db.Uuid
+  name          String
+  language      String    @default("en")
+  /// UTILITY | MARKETING | AUTHENTICATION
+  category      String
+  /// Meta status: APPROVED | PENDING | REJECTED | PAUSED | DISABLED
+  status        String
+  bodyText      String?   @map("body_text")
+  /// Number of {{n}} body variables.
+  variableCount Int       @default(0) @map("variable_count")
+  metaId        String?   @map("meta_id")
+  lastSyncedAt  DateTime? @map("last_synced_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  rules     ReminderRule[]
+  campaigns MessageCampaign[]
+
+  @@unique([name, language])
+  @@map("whatsapp_templates")
+}
+
+/// Automatic reminder rule. See messaging/rules.ts for the trigger list.
+model ReminderRule {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  trigger     String
+  /// Days before the event (negative = after). Ignored by event triggers.
+  offsetDays  Int      @default(0) @map("offset_days")
+  templateId  String   @map("template_id") @db.Uuid
+  /// One entry per template variable: a placeholder such as "{name}" or fixed text.
+  params      Json
+  isEnabled   Boolean  @default(false) @map("is_enabled")
+  createdById String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  template WhatsAppTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([trigger, isEnabled])
+  @@map("reminder_rules")
+}
+
+/// An admin-initiated send to one or more students, now or at a scheduled time.
+model MessageCampaign {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  templateId     String   @map("template_id") @db.Uuid
+  params         Json
+  /// Student ids chosen by the admin.
+  recipientIds   Json     @map("recipient_ids")
+  scheduledAt    DateTime @map("scheduled_at")
+  /// SCHEDULED | QUEUED | CANCELLED
+  status         String   @default("SCHEDULED")
+  recipientCount Int      @default(0) @map("recipient_count")
+  skippedCount   Int      @default(0) @map("skipped_count")
+  createdById    String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  template WhatsAppTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([status, scheduledAt])
+  @@map("message_campaigns")
+}
+
+// ───────────────────────── Online payments (Razorpay) ─────────────────────────
+
+enum OrderStatus {
+  CREATED
+  ATTEMPTED
+  PAID
+  FAILED
+  EXPIRED
+  /// Money captured but could not be applied (e.g. invoice already settled) — staff must refund.
+  NEEDS_REVIEW
+}
+
+model PaymentOrder {
+  id             String      @id @default(uuid()) @db.Uuid
+  gateway        String      @default("RAZORPAY")
+  gatewayOrderId String      @unique @map("gateway_order_id")
+  accountId      String      @map("account_id") @db.Uuid
+  /// INVOICE | PLAN
+  purpose        String
+  invoiceId      String?     @map("invoice_id") @db.Uuid
+  coursePlanId   String?     @map("course_plan_id") @db.Uuid
+  planStartDate  DateTime?   @map("plan_start_date") @db.Date
+  /// Amount computed on the server when the order was created.
+  amountPaise    BigInt      @map("amount_paise")
+  currency       String      @default("INR")
+  description    String
+  status         OrderStatus @default(CREATED)
+  /// Set once the money has been recorded as a Payment + Receipt.
+  paymentId      String?     @unique @map("payment_id") @db.Uuid
+  enrollmentId   String?     @map("enrollment_id") @db.Uuid
+  failureReason  String?     @map("failure_reason")
+  paidAt         DateTime?   @map("paid_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  account      CustomerAccount  @relation(fields: [accountId], references: [id])
+  transactions GatewayPayment[]
+
+  @@index([accountId, createdAt])
+  @@index([status, updatedAt])
+  @@map("payment_orders")
+}
+
+/// One row per gateway payment attempt on an order.
+model GatewayPayment {
+  id               String   @id @default(uuid()) @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  gatewayPaymentId String   @unique @map("gateway_payment_id")
+  /// created | authorized | captured | failed | refunded
+  status           String
+  method           String?
+  amountPaise      BigInt   @map("amount_paise")
+  feePaise         BigInt?  @map("fee_paise")
+  taxPaise         BigInt?  @map("tax_paise")
+  refundedPaise    BigInt   @default(0) @map("refunded_paise")
+  errorCode        String?  @map("error_code")
+  errorReason      String?  @map("error_reason")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  order   PaymentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds Refund[]
+
+  @@index([orderId])
+  @@map("gateway_payments")
+}
+
+model Refund {
+  id               String    @id @default(uuid()) @db.Uuid
+  gatewayPaymentId String    @map("gateway_payment_id") @db.Uuid
+  gatewayRefundId  String?   @unique @map("gateway_refund_id")
+  amountPaise      BigInt    @map("amount_paise")
+  /// PENDING | PROCESSED | FAILED
+  status           String
+  reason           String?
+  initiatedById    String?   @map("initiated_by") @db.Uuid
+  /// When the refund was reflected on the invoice/payment (exactly once).
+  appliedAt        DateTime? @map("applied_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  gatewayPayment GatewayPayment @relation(fields: [gatewayPaymentId], references: [id])
+
+  @@index([gatewayPaymentId])
+  @@map("refunds")
+}
+
+/// Key/value markers for the job runner (e.g. "daily reminders ran for 2026-10-17").
+model JobMarker {
+  key       String   @id
+  value     String?
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("job_markers")
 }

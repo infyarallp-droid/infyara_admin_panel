@@ -137,7 +137,8 @@ export async function createStudent(token: string, overrides: Record<string, unk
   const mobile = (overrides.mobile as string) ?? nextMobile();
   const res = await call('POST', '/api/students', {
     token,
-    body: { fullName: `Test Student ${mobile.slice(-4)}`, mobile, ...overrides },
+    // Staff record WhatsApp consent at admission; pass whatsappConsent: false to test the opposite.
+    body: { fullName: `Test Student ${mobile.slice(-4)}`, mobile, whatsappConsent: true, ...overrides },
   });
   if (res.status !== 201) throw new Error(`createStudent failed: ${res.status} ${JSON.stringify(res.body)}`);
   return res.body.student as { id: string; mobile: string; fullName: string; studentCode: string };

@@ -35,8 +35,8 @@ analyticsRouter.get(
       variants,
       activeEmployees,
     ] = await Promise.all([
-      prisma.payment.aggregate({ _sum: { amountPaise: true }, where: { paidAt: { gte: startOfToday } } }),
-      prisma.payment.aggregate({ _sum: { amountPaise: true }, where: { paidAt: { gte: startOfMonth } } }),
+      prisma.payment.aggregate({ _sum: { amountPaise: true, refundedPaise: true }, where: { paidAt: { gte: startOfToday } } }),
+      prisma.payment.aggregate({ _sum: { amountPaise: true, refundedPaise: true }, where: { paidAt: { gte: startOfMonth } } }),
       prisma.invoice.findMany({ where: { status: { in: ['UNPAID', 'PARTIAL'] } }, select: { totalPaise: true, amountPaidPaise: true } }),
       // Active = not manually deactivated AND holding an enrolment that is valid today.
       prisma.student.count({
@@ -71,8 +71,8 @@ analyticsRouter.get(
     res.json({
       ok: true,
       summary: {
-        revenueTodayRupees: rupees(revToday._sum.amountPaise),
-        revenueMonthRupees: rupees(revMonth._sum.amountPaise),
+        revenueTodayRupees: rupees((revToday._sum.amountPaise ?? 0n) - (revToday._sum.refundedPaise ?? 0n)),
+        revenueMonthRupees: rupees((revMonth._sum.amountPaise ?? 0n) - (revMonth._sum.refundedPaise ?? 0n)),
         pendingRupees: pending / 100,
         activeStudents,
         newStudentsThisMonth: newStudents,

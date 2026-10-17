@@ -89,5 +89,142 @@ if (process.env.TEST_WHATSAPP_UNCONFIGURED === '1') {
 }
 process.env.WHATSAPP_API_BASE_URL = `http://127.0.0.1:${mockPort}`;
 process.env.WHATSAPP_APP_SECRET = '';
+process.env.WHATSAPP_REQUIRE_CONSENT = 'true';
+
+// ── Rate limits: a separate Redis database, emptied per run, so earlier runs never leak in ──
+{
+  const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6399');
+  redisUrl.pathname = '/1';
+  process.env.REDIS_URL = redisUrl.toString();
+  const { default: Redis } = await import('ioredis');
+  const r = new Redis(process.env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 1, connectTimeout: 2000 });
+  try {
+    await r.connect();
+    await r.flushdb();
+  } catch {
+    /* Redis not running: the limiter falls back to in-process counters */
+  } finally {
+    r.disconnect();
+  }
+}
+
+// ── Website ↔ API, jobs ──
+export const TEST_SERVICE_KEY = 'test-website-service-key-0123456789';
+export const TEST_CRON_SECRET = 'test-cron-secret-0123456789';
+process.env.WEBSITE_SERVICE_KEY = TEST_SERVICE_KEY;
+process.env.CRON_SECRET = TEST_CRON_SECRET;
+process.env.WEBSITE_URL = '';
+process.env.WEBSITE_REVALIDATE_SECRET = '';
+process.env.TAX_PERCENT = '0';
+
+// ── Mock Google signing keys (JWKS) — test ID tokens are signed with a local key ──
+const { generateKeyPair, exportJWK, SignJWT } = await import('jose');
+const googleKeys = await generateKeyPair('RS256');
+const googleJwk = { ...(await exportJWK(googleKeys.publicKey)), kid: 'test-key', alg: 'RS256', use: 'sig' };
+export const TEST_GOOGLE_CLIENT_ID = 'test-client.apps.googleusercontent.com';
+const jwksServer = http.createServer((_req, res) => {
+  res.writeHead(200, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ keys: [googleJwk] }));
+});
+await new Promise<void>((r) => jwksServer.listen(0, '127.0.0.1', r));
+jwksServer.unref();
+process.env.GOOGLE_CLIENT_ID = TEST_GOOGLE_CLIENT_ID;
+process.env.GOOGLE_JWKS_URL = `http://127.0.0.1:${(jwksServer.address() as { port: number }).port}/certs`;
+
+/** An ID token as Google would issue it (override fields to test rejection). */
+export async function googleIdToken(claims: { sub: string; email?: string; name?: string; aud?: string; iss?: string }) {
+  return new SignJWT({ email: claims.email, email_verified: true, name: claims.name })
+    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
+    .setSubject(claims.sub)
+    .setIssuer(claims.iss ?? 'https://accounts.google.com')
+    .setAudience(claims.aud ?? TEST_GOOGLE_CLIENT_ID)
+    .setIssuedAt()
+    .setExpirationTime('10m')
+    .sign(googleKeys.privateKey);
+}
+
+// ── Mock Razorpay API ──
+export const TEST_RZP_KEY_ID = 'rzp_test_mockkey';
+export const TEST_RZP_SECRET = 'mock-razorpay-secret';
+export const TEST_RZP_WEBHOOK_SECRET = 'mock-razorpay-webhook-secret';
+interface MockPayment {
+  id: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  method: string;
+}
+export const razorpayMock = {
+  orders: new Map<string, { id: string; amount: number; currency: string; status: string }>(),
+  payments: new Map<string, MockPayment>(),
+  refunds: [] as { id: string; payment_id: string; amount: number }[],
+  /** Status returned for the next refunds ('processed' or 'pending'). */
+  refundStatus: 'processed',
+  badAuth: 0,
+  /** Simulate a customer paying an order (as Razorpay would record it). */
+  pay(orderId: string, overrides: Partial<MockPayment> = {}): MockPayment {
+    const order = this.orders.get(orderId)!;
+    const p: MockPayment = {
+      id: `pay_TEST${this.payments.size + 1}${Date.now() % 100000}`,
+      order_id: orderId,
+      amount: order.amount,
+      currency: 'INR',
+      status: 'captured',
+      method: 'upi',
+      ...overrides,
+    };
+    this.payments.set(p.id, p);
+    return p;
+  },
+};
+const rzpServer = http.createServer((req, res) => {
+  let raw = '';
+  req.on('data', (c) => (raw += c));
+  req.on('end', () => {
+    const send = (status: number, body: unknown) => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    const expected = `Basic ${Buffer.from(`${TEST_RZP_KEY_ID}:${TEST_RZP_SECRET}`).toString('base64')}`;
+    if (req.headers.authorization !== expected) {
+      razorpayMock.badAuth++;
+      return send(401, { error: { description: 'Authentication failed' } });
+    }
+    const body = raw ? JSON.parse(raw) : {};
+    const url = req.url ?? '';
+    let m: RegExpMatchArray | null;
+    if (req.method === 'POST' && url === '/orders') {
+      const order = { id: `order_TEST${razorpayMock.orders.size + 1}${Date.now() % 100000}`, amount: body.amount, currency: body.currency, status: 'created' };
+      razorpayMock.orders.set(order.id, order);
+      return send(200, order);
+    }
+    if (req.method === 'GET' && (m = url.match(/^\/orders\/([^/]+)\/payments$/))) {
+      return send(200, { items: [...razorpayMock.payments.values()].filter((p) => p.order_id === m![1]) });
+    }
+    if (req.method === 'GET' && (m = url.match(/^\/payments\/([^/]+)$/))) {
+      const p = razorpayMock.payments.get(m[1]);
+      return p ? send(200, p) : send(400, { error: { description: 'The id provided does not exist' } });
+    }
+    if (req.method === 'POST' && (m = url.match(/^\/payments\/([^/]+)\/capture$/))) {
+      const p = razorpayMock.payments.get(m[1]);
+      if (!p) return send(400, { error: { description: 'not found' } });
+      p.status = 'captured';
+      return send(200, p);
+    }
+    if (req.method === 'POST' && (m = url.match(/^\/payments\/([^/]+)\/refund$/))) {
+      const refund = { id: `rfnd_TEST${razorpayMock.refunds.length + 1}${Date.now() % 100000}`, payment_id: m[1], amount: body.amount, status: razorpayMock.refundStatus, notes: body.notes };
+      razorpayMock.refunds.push(refund);
+      return send(200, refund);
+    }
+    send(404, { error: { description: 'mock: unknown route' } });
+  });
+});
+await new Promise<void>((r) => rzpServer.listen(0, '127.0.0.1', r));
+rzpServer.unref();
+process.env.RAZORPAY_KEY_ID = TEST_RZP_KEY_ID;
+process.env.RAZORPAY_KEY_SECRET = TEST_RZP_SECRET;
+process.env.RAZORPAY_WEBHOOK_SECRET = TEST_RZP_WEBHOOK_SECRET;
+process.env.RAZORPAY_API_BASE_URL = `http://127.0.0.1:${(rzpServer.address() as { port: number }).port}`;
 
 export const TEST_DB = testDb;

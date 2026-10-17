@@ -38,13 +38,17 @@ api.interceptors.response.use(
     const original = error.config;
     if (error.response?.status === 401 && !original._retry && tokens.refresh) {
       original._retry = true;
+      const sent = tokens.refresh;
       refreshing ??= axios
-        .post(`${API}/api/auth/refresh`, { refreshToken: tokens.refresh })
+        .post(`${API}/api/auth/refresh`, { refreshToken: sent })
         .then((res) => {
           tokens.set(res.data.accessToken, res.data.refreshToken);
           return res.data.accessToken as string;
         })
         .catch(() => {
+          // Refresh tokens are single-use. If another tab already exchanged ours, it stored
+          // a fresh pair in shared storage — use that instead of signing everyone out.
+          if (tokens.refresh && tokens.refresh !== sent && tokens.access) return tokens.access;
           tokens.clear();
           return null;
         })
@@ -63,6 +67,28 @@ api.interceptors.response.use(
 );
 
 export { API };
+
+export interface MediaAsset {
+  id: string;
+  kind: 'IMAGE' | 'VIDEO';
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
+  originalName: string | null;
+  alt: string | null;
+  createdAt: string;
+}
+
+/** Upload one image/video to the public media library. */
+export async function uploadMedia(file: File, alt?: string, onProgress?: (pct: number) => void): Promise<MediaAsset> {
+  const fd = new FormData();
+  fd.append('file', file);
+  if (alt) fd.append('alt', alt);
+  const res = await api.post('/api/cms/media', fd, {
+    onUploadProgress: (e) => e.total && onProgress?.(Math.round((e.loaded / e.total) * 100)),
+  });
+  return res.data.asset as MediaAsset;
+}
 
 /** Best human-readable message for a failed request. */
 export async function apiError(e: unknown, fallback = 'Something went wrong. Please try again.'): Promise<string> {
