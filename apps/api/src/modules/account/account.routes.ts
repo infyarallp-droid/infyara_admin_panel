@@ -14,6 +14,7 @@ import { buildInvoicePdf, buildReceiptPdf } from '../billing/billing.service.js'
 import { enrollInclude, presentEnrollment } from '../enrollments/enrollments.service.js';
 import { currentConsent, recordConsent } from '../messaging/consent.service.js';
 import { presentAccount } from '../customer-auth/customerAuth.service.js';
+import { zoomClassesForStudent } from '../zoom/zoom.service.js';
 import { createInvoiceOrder, createPlanOrder, markAttempted, verifyCheckout } from '../payments/payments.service.js';
 
 // Student self-service, called by the website's server on behalf of a signed-in visitor.
@@ -176,10 +177,10 @@ accountRouter.get(
       take: 20,
       select: { id: true, description: true, amountPaise: true, status: true, createdAt: true, paidAt: true, purpose: true, failureReason: true },
     });
-    if (!account.studentId) return res.json({ ok: true, linked: false, enrollments: [], invoices: [], payments: [], orders });
+    if (!account.studentId) return res.json({ ok: true, linked: false, enrollments: [], invoices: [], payments: [], orders, zoomClasses: [] });
 
     const todayStr = today();
-    const [enrollments, invoices, payments] = await Promise.all([
+    const [enrollments, invoices, payments, zoomClasses] = await Promise.all([
       prisma.enrollment.findMany({ where: { studentId: account.studentId }, include: enrollInclude, orderBy: { startDate: 'desc' } }),
       prisma.invoice.findMany({
         where: { studentId: account.studentId, status: { not: 'DRAFT' } },
@@ -191,10 +192,13 @@ accountRouter.get(
         include: { receipt: true, invoice: { select: { invoiceNo: true } } },
         orderBy: { paidAt: 'desc' },
       }),
+      // Online classes of the courses this student is currently enrolled in (links stay private to them).
+      zoomClassesForStudent(account.studentId),
     ]);
     res.json({
       ok: true,
       linked: true,
+      zoomClasses,
       enrollments: enrollments.map((e) => {
         const p = presentEnrollment(e, todayStr);
         return {

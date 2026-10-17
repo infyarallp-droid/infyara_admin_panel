@@ -28,6 +28,7 @@ const Faqs = lazy(() => import('./pages/cms/Faqs'));
 const Announcements = lazy(() => import('./pages/cms/Announcements'));
 const Gallery = lazy(() => import('./pages/cms/Gallery'));
 const Blog = lazy(() => import('./pages/cms/Blog'));
+const ZoomClasses = lazy(() => import('./pages/ZoomClasses'));
 const Programmes = lazy(() => import('./pages/cms/Programmes'));
 
 const MANAGERS = ['SUPER_ADMIN', 'ADMIN', 'MANAGER'];
@@ -82,6 +83,7 @@ export default function App() {
             <Route path="employees/:id" element={<EmployeeDetail />} />
             <Route path="leads" element={<Leads />} />
             <Route path="renewals" element={<Renewals />} />
+            <Route path="zoom-classes" element={<RoleGate roles={[...MANAGERS, 'FRONT_DESK', 'TRAINER']}><ZoomClasses /></RoleGate>} />
             <Route path="consent/:id" element={<ConsentForm />} />
             <Route path="consent-templates" element={<ConsentTemplates />} />
             <Route path="website-logins" element={<RoleGate roles={[...MANAGERS, 'FRONT_DESK']}><WebsiteLogins /></RoleGate>} />

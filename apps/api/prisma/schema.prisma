@@ -337,9 +337,10 @@ model Course {
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
-  plans   CoursePlan[]
-  timings ClassTiming[]
-  leads   Lead[]
+  plans       CoursePlan[]
+  timings     ClassTiming[]
+  leads       Lead[]
+  zoomClasses ZoomClass[]
 
   @@map("courses")
 }
@@ -382,8 +383,39 @@ model ClassTiming {
   course      Course?      @relation(fields: [courseId], references: [id], onDelete: SetNull)
   trainer     Employee?    @relation(fields: [trainerId], references: [id])
   enrollments Enrollment[]
+  zoomClasses ZoomClass[]
 
   @@map("class_timings")
+}
+
+/// An online (Zoom) class for a course. Its link is shown only to signed-in students whose
+/// enrolment in that course is current (and, when a batch is set, who enrolled in that batch).
+model ZoomClass {
+  id              String    @id @default(uuid()) @db.Uuid
+  courseId        String    @map("course_id") @db.Uuid
+  /// Only students enrolled in this batch/timing see it; null = everyone in the course.
+  classTimingId   String?   @map("class_timing_id") @db.Uuid
+  title           String
+  meetingUrl      String    @map("meeting_url")
+  meetingId       String?   @map("meeting_id")
+  passcode        String?
+  /// Weekly classes: days ("MON".."SUN") and a start time "HH:MM" (India time).
+  days            String[]  @default([])
+  startTime       String?   @map("start_time")
+  /// A one-off session (workshop, special class); when set, days are ignored.
+  startsAt        DateTime? @map("starts_at")
+  durationMinutes Int       @default(60) @map("duration_minutes")
+  notes           String?
+  isActive        Boolean   @default(true) @map("is_active")
+  createdById     String?   @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  classTiming ClassTiming? @relation(fields: [classTimingId], references: [id], onDelete: SetNull)
+
+  @@index([courseId, isActive])
+  @@map("zoom_classes")
 }
 
 model Enrollment {
